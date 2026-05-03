@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: rounded square -->
+  <rect width="512" height="512" rx="112" fill="#10B981"/>
+
+  <!-- Stylised "F" built from two overlapping leaf/page shapes -->
+  <!-- Vertical stroke -->
+  <rect x="148" y="112" width="56" height="288" rx="28" fill="#0A0A0B"/>
+
+  <!-- Top horizontal bar with a subtle page-fold -->
+  <path d="M176 112 H332 C346.359 112 358 123.641 358 138 V138 C358 152.359 346.359 164 332 164 H176 V112Z" fill="#0A0A0B"/>
+
+  <!-- Page fold triangle (lighter accent) -->
+  <path d="M358 112 L358 164 L306 112 Z" fill="#059669"/>
+
+  <!-- Middle shorter bar -->
+  <rect x="176" y="228" width="140" height="52" rx="26" fill="#0A0A0B"/>
+</svg>
