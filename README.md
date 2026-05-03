@@ -2,8 +2,6 @@
 
 **0% interest credit line backed by your stocks. Borrow without selling, no minimums, no taxes.**
 
-https://github.com/user-attachments/assets/636b3a70-c231-438c-a583-81e847c3d33c
-
 Globally, trillions sit in brokerage accounts that people can't spend. Need cash? You either sell shares and lose up to 37% to capital gains taxes, or take a margin loan at 7-12% interest — if you even qualify (most brokerages require $500K+).
 
 Folio gives you a 0% credit line backed by your stock portfolio. Connect your brokerage, pick a stock, spend. Your shares stay yours.
