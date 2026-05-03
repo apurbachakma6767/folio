@@ -101,10 +101,7 @@ npm run dev       # http://localhost:3000
 
 ## Links
 
-- [Live Demo](https://folio-blush-omega.vercel.app)
+- [Live Demo](https://folio.bar)
 - [CollarOracle on Base Sepolia](https://sepolia.basescan.org/address/0x00A3cF51bA20eA6f1754BaFcecA6d144e3d1D00f)
 - [Hedera Testnet Explorer](https://hashscan.io/testnet)
 
----
-
-Solo build — [ETHGlobal Cannes 2026](https://ethglobal.com/events/cannes2026), 36 hours.
