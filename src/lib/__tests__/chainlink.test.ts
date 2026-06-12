@@ -11,10 +11,6 @@ jest.mock('viem', () => ({
   parseAbi: (abi: string[]) => abi,
 }));
 
-jest.mock('viem/chains', () => ({
-  baseSepolia: { id: 84532, name: 'Base Sepolia' },
-}));
-
 // Set env before import
 process.env.COLLAR_ORACLE_ADDRESS = '0x00A3cF51bA20eA6f1754BaFcecA6d144e3d1D00f';
 

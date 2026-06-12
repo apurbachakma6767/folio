@@ -1,11 +1,11 @@
 // Chainlink CollarOracle integration — reads collar params AND live prices from on-chain
 // Migrated to Hedera Testnet (EVM-compatible via HashIO)
-// The CRE workflow writes collar params; Chainlink Price Feeds provide live prices.
+// The CRE workflow writes collar params; on-chain reads via viem.
 
-import { createPublicClient, http, parseAbi, defineChain } from 'viem';
+import { createPublicClient, http, parseAbi } from 'viem';
 
 // Hedera Testnet chain configuration
-const hederaTestnet = defineChain({
+const hederaTestnet = {
   id: 296,
   name: 'Hedera Testnet',
   nativeCurrency: {
@@ -24,7 +24,7 @@ const hederaTestnet = defineChain({
   blockExplorers: {
     default: { name: 'HashScan', url: 'https://hashscan.io/testnet' },
   },
-});
+} as const;
 
 const COLLAR_ORACLE_ABI = parseAbi([
   'function getCollar(string symbol) external view returns (uint256 price, uint256 floor, uint256 cap, uint256 volatility, uint256 updatedAt)',
