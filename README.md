@@ -2,8 +2,6 @@
 
 **0% interest credit line backed by your stocks. Borrow without selling, no minimums, no taxes.**
 
-https://github.com/user-attachments/assets/636b3a70-c231-438c-a583-81e847c3d33c
-
 Globally, trillions sit in brokerage accounts that people can't spend. Need cash? You either sell shares and lose up to 37% to capital gains taxes, or take a margin loan at 7-12% interest — if you even qualify (most brokerages require $500K+).
 
 Folio gives you a 0% credit line backed by your stock portfolio. Connect your brokerage, pick a stock, spend. Your shares stay yours.
@@ -115,11 +113,7 @@ npm run hedera:associate-vault
 
 ## Links
 
-- [Hedera deploy & vault setup](./DEPLOY-HEDERA.md)
-- [Live Demo](https://folio-blush-omega.vercel.app)
+- [Live Demo](https://folio.bar)
 - [CollarOracle on Base Sepolia](https://sepolia.basescan.org/address/0x00A3cF51bA20eA6f1754BaFcecA6d144e3d1D00f)
 - [Hedera Testnet Explorer](https://hashscan.io/testnet)
 
----
-
-Solo build — [ETHGlobal Cannes 2026](https://ethglobal.com/events/cannes2026), 36 hours.
