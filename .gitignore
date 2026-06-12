@@ -16,3 +16,29 @@ foundry.lock
 .plaid-tokens.json
 .user-registry.json
 plaid-sandbox-user.json
+
+# OS junk
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# IDE / tool config
+.commandcode/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts (compiled on demand)
+contracts/folio-vault/artifacts/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Supabase migrations (local only)
+supabase/.branches/
+supabase/.temp/
+
+# Environment backup files
+.env.*.bak

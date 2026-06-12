@@ -1,10 +1,10 @@
 {
   "schedule": "*/30 * * * * *",
-  "chainSelectorName": "ethereum-testnet-sepolia-base-1",
-  "collarOracleAddress": "0x00A3cF51bA20eA6f1754BaFcecA6d144e3d1D00f",
+  "chainSelectorName": "hedera-testnet",
+  "collarOracleAddress": "0x271fdeb370874999d2463852170cdd247bdf0bb1",
   "dataStreamsUrl": "http://localhost:8787",
   "dolthubBaseUrl": "http://localhost:8787/api/v1alpha1/post-no-preference/options/master",
-  "secretOwner": "0xF7796E6bF14BB2716f47c5D0C889A51a9052CCc3",
+  "secretOwner": "0x0000000000000000000000000000000000000000",
   "assets": [
     {
       "symbol": "AAPL",

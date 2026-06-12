@@ -26,9 +26,9 @@ The entire experience feels like a neobank — email login, "spend" buttons, tra
 ```
 Plaid ──── brokerage holdings sync ────┐
                                        v
-Dynamic ── email OTP auth ──────> Next.js App ──> Hedera HTS
+Dynamic ── email OTP auth ──────> Next.js App ──> Hedera HTS + FolioCollateralVault
                                        |          (tokens, NFT spend notes,
-                                       |           HCS audit trail)
+                                       |           vault custody, HCS audit trail)
                                        |
                               ┌────────┼────────┐
                               v        v        v
@@ -48,7 +48,7 @@ Dynamic ── email OTP auth ──────> Next.js App ──> Hedera HTS
 | Frontend | Next.js 16 App Router, React 19, Tailwind CSS 4, TypeScript |
 | Auth | Dynamic JS SDK — email OTP, server-side JWT via JWKS, zero crypto UX |
 | Brokerage | Plaid — real-time holdings sync from connected accounts |
-| Tokens | Hedera HTS — fungible tokens (MOCK-TSLA, MOCK-AAPL, USDC-TEST), NFT Spend Notes, HCS audit trail |
+| Tokens & custody | Hedera HTS — fungible tokens (MOCK-TSLA, MOCK-AAPL, USDC-TEST), NFT Spend Notes, HCS audit trail; optional **FolioCollateralVault** (Solidity) for ERC-20-style `deposit` / operator `release` when `FOLIO_VAULT_*` is set |
 | Pricing | Chainlink CRE workflow (Data Streams + DoltHub IV + EVM Write to CollarOracle on Base Sepolia), Yahoo Finance fallback |
 | AI | Vercel AI SDK — collar optimizer (3-tier: on-chain oracle > LLM + options data > Black-Scholes fallback), Hedera Agent Kit (autonomous on-chain operations via natural language) |
 | Storage | Pinata IPFS (spend note metadata), Supabase (user registry, spend notes) |
@@ -58,14 +58,15 @@ Dynamic ── email OTP auth ──────> Next.js App ──> Hedera HTS
 
 ### Hedera
 
-All financial operations run on Hedera Token Service via `@hashgraph/sdk` — zero Solidity anywhere on Hedera. Four+ native services:
+Financial operations use Hedera via `@hashgraph/sdk` — mostly **HTS** and **HCS**, plus an optional **smart-contract vault** for collateral custody.
 
 - **HTS Fungible Tokens** — equity tokens and USDC-TEST with custom fee schedules
 - **HTS NFTs** — Spend Note collection, each mint records collar parameters in IPFS metadata
 - **Hedera Consensus Service** — immutable audit trail for every spend, repayment, and settlement
 - **Account Management** — user account creation, token associations, KYC grants, freeze/unfreeze
+- **FolioCollateralVault** (Solidity on Hedera) — user `approve` + `deposit` into the vault; operator-only `release` on repay/expiry. If `FOLIO_VAULT_CONTRACT_ID` is unset, the app falls back to transferring collateral to the operator account (legacy path).
 
-Non-custodial flow: collateral lock transactions are prepared server-side as unsigned bytes, signed client-side with the user's encrypted Hedera key (AES-256-CBC), then co-signed by the operator.
+Non-custodial flow: transactions are prepared server-side as unsigned bytes, signed client-side with the user's encrypted Hedera key (AES-256-CBC), then co-signed by the operator where required (including vault deposits when configured).
 
 The Hedera Agent Kit integration (MiniMax M1 via Vercel AI SDK) provides an autonomous AI agent for on-chain operations — checking balances, transferring tokens, minting NFTs, and submitting HCS messages via natural language.
 
@@ -96,13 +97,25 @@ cd folio
 cp .env.example .env.local
 # Fill in: HEDERA_OPERATOR_ID, HEDERA_OPERATOR_KEY,
 #          NEXT_PUBLIC_DYNAMIC_ENV_ID, PINATA_API_KEY
+# Optional vault (recommended): after deploy, add FOLIO_VAULT_CONTRACT_ID and FOLIO_VAULT_EVM_ADDRESS
 npm install
 npm run setup     # Creates tokens on Hedera testnet
 npm run dev       # http://localhost:3000
 ```
 
+**Collateral vault (optional):** compile and test the contract, deploy, associate vault tokens, then set env vars. Full steps and Hedera doc links are in **[DEPLOY-HEDERA.md](./DEPLOY-HEDERA.md)**.
+
+```bash
+npm run contracts:compile
+npm run test:contracts
+npm run deploy:vault
+npm run hedera:associate-vault
+# Add FOLIO_VAULT_CONTRACT_ID and FOLIO_VAULT_EVM_ADDRESS to .env.local
+```
+
 ## Links
 
+- [Hedera deploy & vault setup](./DEPLOY-HEDERA.md)
 - [Live Demo](https://folio-blush-omega.vercel.app)
 - [CollarOracle on Base Sepolia](https://sepolia.basescan.org/address/0x00A3cF51bA20eA6f1754BaFcecA6d144e3d1D00f)
 - [Hedera Testnet Explorer](https://hashscan.io/testnet)

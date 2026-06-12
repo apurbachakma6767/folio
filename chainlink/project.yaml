@@ -1,12 +1,18 @@
 # Folio Collar Oracle — CRE Project Configuration
-# Uses Ethereum Sepolia for testnet development
+# Migrated to Hedera Testnet (EVM-compatible via HashIO)
 
 staging-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia-base-1
-      url: https://sepolia.base.org
+    - chain-name: ethereum-mainnet
+      url: https://eth.llamarpc.com
+    - chain-name: hedera-testnet
+      url: https://testnet.hashio.io/api
+      chain-id: 296
 
 production-settings:
   rpcs:
-    - chain-name: ethereum-testnet-sepolia-base-1
-      url: https://sepolia.base.org
+    - chain-name: ethereum-mainnet
+      url: https://eth.llamarpc.com
+    - chain-name: hedera-testnet
+      url: https://testnet.hashio.io/api
+      chain-id: 296

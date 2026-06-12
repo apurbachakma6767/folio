@@ -1,8 +1,30 @@
 // Chainlink CollarOracle integration — reads collar params AND live prices from on-chain
+// Migrated to Hedera Testnet (EVM-compatible via HashIO)
 // The CRE workflow writes collar params; Chainlink Price Feeds provide live prices.
 
-import { createPublicClient, http, parseAbi } from 'viem';
-import { baseSepolia } from 'viem/chains';
+import { createPublicClient, http, parseAbi, defineChain } from 'viem';
+
+// Hedera Testnet chain configuration
+const hederaTestnet = defineChain({
+  id: 296,
+  name: 'Hedera Testnet',
+  nativeCurrency: {
+    decimals: 8,
+    name: 'HBAR',
+    symbol: 'HBAR',
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://testnet.hashio.io/api'],
+    },
+    public: {
+      http: ['https://testnet.hashio.io/api'],
+    },
+  },
+  blockExplorers: {
+    default: { name: 'HashScan', url: 'https://hashscan.io/testnet' },
+  },
+});
 
 const COLLAR_ORACLE_ABI = parseAbi([
   'function getCollar(string symbol) external view returns (uint256 price, uint256 floor, uint256 cap, uint256 volatility, uint256 updatedAt)',
@@ -26,13 +48,13 @@ export interface ChainlinkPrice {
   source: 'chainlink-feed';
 }
 
-const COLLAR_ORACLE_ADDRESS = process.env.COLLAR_ORACLE_ADDRESS || '0x00A3cF51bA20eA6f1754BaFcecA6d144e3d1D00f';
-const BASE_SEPOLIA_RPC = process.env.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org';
+const COLLAR_ORACLE_ADDRESS = process.env.COLLAR_ORACLE_ADDRESS || '0x0000000000000000000000000000000000000000';
+const HEDERA_RPC_URL = process.env.HEDERA_TESTNET_RPC_URL || 'https://testnet.hashio.io/api';
 
 function getClient() {
   return createPublicClient({
-    chain: baseSepolia,
-    transport: http(BASE_SEPOLIA_RPC),
+    chain: hederaTestnet,
+    transport: http(HEDERA_RPC_URL),
   });
 }
 
