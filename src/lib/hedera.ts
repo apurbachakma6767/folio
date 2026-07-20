@@ -73,7 +73,7 @@ export function getClient(): Client {
   clientInstance =
     network === 'mainnet' ? Client.forMainnet() : Client.forTestnet();
   clientInstance.setOperator(AccountId.fromString(operatorId), operatorKey);
-  clientInstance.setDefaultMaxTransactionFee(Hbar.from(100));
+  clientInstance.setDefaultMaxTransactionFee(new Hbar(100));
 
   return clientInstance;
 }
@@ -168,7 +168,7 @@ export async function clearTokenKycAndFreeze(tokenId: string): Promise<void> {
   const empty = new KeyList();
   let tx = new TokenUpdateTransaction()
     .setTokenId(TokenId.fromString(tokenId))
-    .setMaxTransactionFee(Hbar.from(200));
+    .setMaxTransactionFee(new Hbar(200));
 
   if (info.kycKey) tx = tx.setKycKey(empty);
   if (info.freezeKey) tx = tx.setFreezeKey(empty);
