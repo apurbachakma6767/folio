@@ -9,11 +9,19 @@ interface BottomNavProps {
 
 const navItems: { id: string; label: string; icon: ReactNode }[] = [
   {
-    id: 'portfolio', label: 'Portfolio',
+    id: 'portfolio', label: 'Home',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
         <rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </svg>
+    ),
+  },
+  {
+    id: 'trade', label: 'Trade',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" />
       </svg>
     ),
   },
@@ -26,27 +34,18 @@ const navItems: { id: string; label: string; icon: ReactNode }[] = [
     ),
   },
   {
-    id: 'cards', label: 'Cards',
+    id: 'wallet', label: 'Wallet',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" />
+        <path d="M21 12V7H5a2 2 0 010-4h14v4" /><path d="M3 5v14a2 2 0 002 2h16v-5" /><path d="M18 12a2 2 0 000 4h4v-4z" />
       </svg>
     ),
   },
   {
-    id: 'notes', label: 'Transactions',
+    id: 'settings', label: 'More',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
-      </svg>
-    ),
-  },
-  {
-    id: 'settings', label: 'Settings',
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+        <circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />
       </svg>
     ),
   },
@@ -54,13 +53,7 @@ const navItems: { id: string; label: string; icon: ReactNode }[] = [
 
 export default function BottomNav({ activeTab, onNavigate }: BottomNavProps) {
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 flex"
-      style={{
-        background: 'rgba(12,12,14,0.85)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderTop: '1px solid rgba(255,255,255,0.06)',
-      }}>
+    <nav className="bottom-nav-glass md:hidden fixed bottom-0 left-0 right-0 flex z-30 safe-bottom">
       {navItems.map((item) => {
         const isActive = activeTab === item.id;
         return (
@@ -71,10 +64,22 @@ export default function BottomNav({ activeTab, onNavigate }: BottomNavProps) {
             style={{ color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}
           >
             {isActive && (
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-[2px] rounded-full"
-                style={{ background: 'var(--accent)' }} />
+              <div
+                className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-[2px] rounded-full"
+                style={{
+                  background: 'var(--accent)',
+                  boxShadow: '0 0 12px rgba(16,185,129,0.6)',
+                }}
+              />
             )}
-            {item.icon}
+            <span
+              className="flex items-center justify-center w-9 h-9 rounded-xl transition-colors"
+              style={{
+                background: isActive ? 'var(--accent-muted)' : 'transparent',
+              }}
+            >
+              {item.icon}
+            </span>
             {item.label}
           </button>
         );

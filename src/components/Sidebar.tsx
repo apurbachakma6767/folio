@@ -20,10 +20,26 @@ const navItems = [
     ),
   },
   {
+    id: 'trade', label: 'Trade',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" />
+      </svg>
+    ),
+  },
+  {
     id: 'spend', label: 'Spend',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
+      </svg>
+    ),
+  },
+  {
+    id: 'wallet', label: 'Wallet',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12V7H5a2 2 0 010-4h14v4" /><path d="M3 5v14a2 2 0 002 2h16v-5" /><path d="M18 12a2 2 0 000 4h4v-4z" />
       </svg>
     ),
   },
@@ -62,20 +78,24 @@ export default function Sidebar({ activeTab, onNavigate }: SidebarProps) {
     setMounted(true);
   }, []);
 
-  const label = mounted ? (user?.email ?? user?.firstName ?? 'Demo User') : 'Demo User';
+  const label = mounted ? (user?.email ?? user?.firstName ?? 'Account') : 'Account';
   const initial = label.charAt(0).toUpperCase();
 
+  const networkLabel =
+    process.env.NEXT_PUBLIC_HEDERA_NETWORK === 'mainnet' ? 'Mainnet' : 'Testnet';
+
   return (
-    <aside className="hidden md:flex flex-col w-[240px] border-r px-5 py-8 gap-1"
-      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+    <aside className="sidebar-glass hidden md:flex flex-col w-[248px] shrink-0 px-4 py-7 gap-1 h-full self-stretch overflow-hidden">
       {/* Logo */}
-      <div className="flex items-center gap-3 mb-10 px-3">
+      <div className="flex items-center gap-3 mb-8 px-3">
         <FolioLogo size={36} />
-        <span className="text-[17px] font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>Folio</span>
+        <span className="text-[17px] font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+          Folio
+        </span>
       </div>
 
       {/* Nav */}
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-0.5 flex-1 overflow-y-auto">
         {navItems.map((item) => (
           <button
             key={item.id}
@@ -84,8 +104,8 @@ export default function Sidebar({ activeTab, onNavigate }: SidebarProps) {
               activeTab === item.id ? 'nav-active' : ''
             }`}
             style={{
-              background: activeTab === item.id ? 'var(--accent-muted)' : 'transparent',
-              color: activeTab === item.id ? 'var(--accent)' : 'var(--text-secondary)',
+              background: activeTab === item.id ? undefined : 'transparent',
+              color: activeTab === item.id ? undefined : 'var(--text-secondary)',
             }}
           >
             {item.icon}
@@ -95,15 +115,35 @@ export default function Sidebar({ activeTab, onNavigate }: SidebarProps) {
       </div>
 
       {/* User */}
-      <div className="mt-auto px-3">
-        <div className="flex items-center gap-3 p-2 rounded-xl" style={{ background: 'var(--bg-elevated)' }}>
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold"
-            style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', color: '#fff' }}>
+      <div className="mt-4 px-1">
+        <div className="glass-inset flex items-center gap-3 p-2.5">
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-semibold shrink-0"
+            style={{
+              background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+              color: '#fff',
+              boxShadow: '0 4px 12px rgba(99,102,241,0.4), inset 0 1px 0 rgba(255,255,255,0.25)',
+            }}
+          >
             {initial}
           </div>
-          <div>
-            <div className="text-[13px] font-medium truncate max-w-[140px]" style={{ color: 'var(--text-primary)' }}>{label}</div>
-            <div className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>Testnet</div>
+          <div className="min-w-0">
+            <div
+              className="text-[13px] font-medium truncate max-w-[140px]"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              {label}
+            </div>
+            <div className="text-[11px] flex items-center gap-1.5" style={{ color: 'var(--text-tertiary)' }}>
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{
+                  background: 'var(--accent)',
+                  boxShadow: '0 0 6px rgba(16,185,129,0.8)',
+                }}
+              />
+              {networkLabel}
+            </div>
           </div>
         </div>
       </div>

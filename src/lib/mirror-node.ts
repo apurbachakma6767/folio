@@ -1,7 +1,11 @@
-// Mirror Node REST API client — query Hedera testnet transaction history
+// Mirror Node REST API client — query Hedera transaction history
 // https://docs.hedera.com/hedera/sdks-and-apis/rest-api
 
-const MIRROR_BASE = 'https://testnet.mirrornode.hedera.com';
+import { getMirrorNodeBase } from './network';
+
+function mirrorBase(): string {
+  return getMirrorNodeBase();
+}
 
 export interface MirrorTransaction {
   transaction_id: string;
@@ -32,7 +36,7 @@ export async function getAccountTransactions(
   limit: number = 25
 ): Promise<MirrorTransaction[]> {
   const res = await fetch(
-    `${MIRROR_BASE}/api/v1/transactions?account.id=${accountId}&limit=${limit}&order=desc`
+    `${mirrorBase()}/api/v1/transactions?account.id=${accountId}&limit=${limit}&order=desc`
   );
   if (!res.ok) throw new Error(`Mirror Node error: ${res.status}`);
   const data = await res.json();
@@ -44,7 +48,7 @@ export async function getAccountTokenBalances(
   accountId: string
 ): Promise<Array<{ token_id: string; balance: number }>> {
   const res = await fetch(
-    `${MIRROR_BASE}/api/v1/accounts/${accountId}/tokens`
+    `${mirrorBase()}/api/v1/accounts/${accountId}/tokens`
   );
   if (!res.ok) throw new Error(`Mirror Node error: ${res.status}`);
   const data = await res.json();
@@ -56,7 +60,7 @@ export async function getAccountNfts(
   accountId: string,
   tokenId?: string
 ): Promise<Array<{ token_id: string; serial_number: number; metadata: string }>> {
-  let url = `${MIRROR_BASE}/api/v1/accounts/${accountId}/nfts?limit=100`;
+  let url = `${mirrorBase()}/api/v1/accounts/${accountId}/nfts?limit=100`;
   if (tokenId) url += `&token.id=${tokenId}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Mirror Node error: ${res.status}`);
@@ -70,7 +74,7 @@ export async function getTopicMessages(
   limit: number = 25
 ): Promise<HcsMessage[]> {
   const res = await fetch(
-    `${MIRROR_BASE}/api/v1/topics/${topicId}/messages?limit=${limit}&order=desc`
+    `${mirrorBase()}/api/v1/topics/${topicId}/messages?limit=${limit}&order=desc`
   );
   if (!res.ok) throw new Error(`Mirror Node error: ${res.status}`);
   const data = await res.json();
@@ -93,7 +97,7 @@ export async function getTokenInfo(tokenId: string): Promise<{
   kyc_key: unknown;
   freeze_key: unknown;
 }> {
-  const res = await fetch(`${MIRROR_BASE}/api/v1/tokens/${tokenId}`);
+  const res = await fetch(`${mirrorBase()}/api/v1/tokens/${tokenId}`);
   if (!res.ok) throw new Error(`Mirror Node error: ${res.status}`);
   return res.json();
 }
@@ -105,7 +109,7 @@ export async function getTransactionById(
   // Convert 0.0.12345@1234567890.000 → 0.0.12345-1234567890-000
   const normalized = txId.replace('@', '-').replace(/\.(\d+)$/, '-$1');
   const res = await fetch(
-    `${MIRROR_BASE}/api/v1/transactions/${normalized}`
+    `${mirrorBase()}/api/v1/transactions/${normalized}`
   );
   if (!res.ok) return null;
   const data = await res.json();

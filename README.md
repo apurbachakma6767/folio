@@ -46,7 +46,7 @@ Dynamic ── email OTP auth ──────> Next.js App ──> Hedera HTS
 | Frontend | Next.js 16 App Router, React 19, Tailwind CSS 4, TypeScript |
 | Auth | Dynamic JS SDK — email OTP, server-side JWT via JWKS, zero crypto UX |
 | Brokerage | Plaid — real-time holdings sync from connected accounts |
-| Tokens & custody | Hedera HTS — fungible tokens (MOCK-TSLA, MOCK-AAPL, USDC-TEST), NFT Spend Notes, HCS audit trail; optional **FolioCollateralVault** (Solidity) for ERC-20-style `deposit` / operator `release` when `FOLIO_VAULT_*` is set |
+| Tokens & custody | Hedera HTS — Folio equity tokens (TSLA, AAPL, …), USDC, NFT Spend Notes, HCS audit trail; optional **FolioCollateralVault** (Solidity) for ERC-20-style `deposit` / operator `release` when `FOLIO_VAULT_*` is set |
 | Pricing | Chainlink CRE workflow (Data Streams + DoltHub IV + EVM Write to CollarOracle on Base Sepolia), Yahoo Finance fallback |
 | AI | Vercel AI SDK — collar optimizer (3-tier: on-chain oracle > LLM + options data > Black-Scholes fallback), Hedera Agent Kit (autonomous on-chain operations via natural language) |
 | Storage | Pinata IPFS (spend note metadata), Supabase (user registry, spend notes) |
@@ -97,11 +97,13 @@ cp .env.example .env.local
 #          NEXT_PUBLIC_DYNAMIC_ENV_ID, PINATA_API_KEY
 # Optional vault (recommended): after deploy, add FOLIO_VAULT_CONTRACT_ID and FOLIO_VAULT_EVM_ADDRESS
 npm install
-npm run setup     # Creates tokens on Hedera testnet
+npm run setup     # Creates tokens on Hedera (testnet by default)
 npm run dev       # http://localhost:3000
 ```
 
-**Collateral vault (optional):** compile and test the contract, deploy, associate vault tokens, then set env vars. Full steps and Hedera doc links are in **[DEPLOY-HEDERA.md](./DEPLOY-HEDERA.md)**.
+**Knowledge base (architecture, testnet IDs, gotchas, mainnet checklist):** **[docs/KNOWLEDGE.md](./docs/KNOWLEDGE.md)**.
+
+**Collateral vault (optional on testnet, required on mainnet):** compile and test the contract, deploy, associate vault tokens, then set env vars. Full steps and Hedera doc links are in **[DEPLOY-HEDERA.md](./DEPLOY-HEDERA.md)**.
 
 ```bash
 npm run contracts:compile

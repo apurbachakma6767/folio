@@ -261,13 +261,13 @@ export default function NoteDetail({ noteId, onBack }: NoteDetailProps) {
       {/* TX verification link */}
       <div className="text-[11px] mb-8 px-1">
         <a
-          href={`https://hashscan.io/testnet/transaction/${note.txId}`}
+          href={`${process.env.NEXT_PUBLIC_HASHSCAN_BASE || 'https://hashscan.io/testnet'}/transaction/${note.txId}`}
           target="_blank"
           rel="noopener noreferrer"
           className="hover:underline"
           style={{ color: 'var(--text-tertiary)' }}
         >
-          Verify on Hedera Testnet
+          View on HashScan
         </a>
       </div>
 

@@ -18,13 +18,15 @@ async function checkTreasuryBalance(
 
   const operatorId = process.env.HEDERA_OPERATOR_ID!;
   const operatorKey = process.env.HEDERA_OPERATOR_KEY!;
-  const usdcTokenId = process.env.USDC_TEST_TOKEN_ID;
+  const { getUsdcTokenId, getHederaNetwork } = await import('@/lib/network');
+  const usdcTokenId = getUsdcTokenId();
 
   if (!usdcTokenId) {
     return { feasible: true }; // Can't check without token ID — assume OK
   }
 
-  const client = Client.forTestnet();
+  const network = getHederaNetwork();
+  const client = network === 'mainnet' ? Client.forMainnet() : Client.forTestnet();
   client.setOperator(
     AccountId.fromString(operatorId),
     PrivateKey.fromStringDer(operatorKey)

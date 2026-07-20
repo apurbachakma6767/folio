@@ -56,9 +56,13 @@ const mockForTestnet = jest.fn(() => ({
   setOperator: mockSetOperator,
   setDefaultMaxTransactionFee: mockSetDefaultMaxTransactionFee,
 }));
+const mockForMainnet = jest.fn(() => ({
+  setOperator: mockSetOperator,
+  setDefaultMaxTransactionFee: mockSetDefaultMaxTransactionFee,
+}));
 
 const sdkMock = {
-  Client: { forTestnet: mockForTestnet },
+  Client: { forTestnet: mockForTestnet, forMainnet: mockForMainnet },
   AccountId: { fromString: jest.fn((s: string) => s) },
   PrivateKey: {
     fromStringDer: jest.fn((s: string) => ({
@@ -113,6 +117,7 @@ function freshHedera() {
 
 describe('getClient', () => {
   it('creates a testnet client with operator credentials', () => {
+    delete process.env.HEDERA_NETWORK;
     const { getClient } = freshHedera();
     getClient();
     expect(mockForTestnet).toHaveBeenCalledTimes(1);
@@ -120,7 +125,17 @@ describe('getClient', () => {
     expect(mockSetDefaultMaxTransactionFee).toHaveBeenCalledTimes(1);
   });
 
+  it('creates a mainnet client when HEDERA_NETWORK=mainnet', () => {
+    process.env.HEDERA_NETWORK = 'mainnet';
+    const { getClient } = freshHedera();
+    getClient();
+    expect(mockForMainnet).toHaveBeenCalledTimes(1);
+    expect(mockForTestnet).not.toHaveBeenCalled();
+    delete process.env.HEDERA_NETWORK;
+  });
+
   it('returns same instance on subsequent calls (singleton)', () => {
+    delete process.env.HEDERA_NETWORK;
     const { getClient } = freshHedera();
     const c1 = getClient();
     const c2 = getClient();
@@ -164,7 +179,7 @@ describe('createFungibleToken', () => {
     receiptResult = { tokenId: { toString: () => '0.0.77777' } };
 
     const { createFungibleToken } = freshHedera();
-    const tokenId = await createFungibleToken('Mock Tesla', 'MOCK-TSLA', 1_000_000_000, 6);
+    const tokenId = await createFungibleToken('Tesla', 'TSLA', 1_000_000_000, 6);
 
     expect(tokenId).toBe('0.0.77777');
     expect(mockTokenCreateTransaction).toHaveBeenCalled();
@@ -199,7 +214,7 @@ describe('mintSpendNote', () => {
 describe('mintSpendNoteWithIpfs', () => {
   const metadata = {
     name: 'Spend Note #1',
-    asset: 'MOCK-TSLA',
+    asset: 'TSLA',
     shares_collared: 222222,
     stock_price_at_spend: 225000000,
     collar_floor: 213750000,

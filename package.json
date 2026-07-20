@@ -8,11 +8,19 @@
     "start": "next start",
     "lint": "eslint",
     "setup": "npx tsx scripts/setup.ts",
+    "setup:mainnet": "npx tsx scripts/setup-mainnet.ts",
+    "ensure:equities": "npx tsx scripts/ensure-all-equity-tokens.ts",
+    "ensure:equities:mainnet": "npx tsx scripts/ensure-all-equity-tokens.ts --mainnet",
+    "purge:operator-equity": "npx tsx scripts/purge-operator-equity.ts",
+    "purge:operator-equity:mainnet": "npx tsx scripts/purge-operator-equity.ts --mainnet",
+    "db:migrate": "npx tsx scripts/run-migrations.ts",
     "test": "jest",
     "contracts:compile": "hardhat compile --config contracts/folio-vault/hardhat.config.cjs",
     "test:contracts": "hardhat test --config contracts/folio-vault/hardhat.config.cjs",
     "deploy:vault": "npx tsx scripts/deploy-folio-vault.ts",
-    "hedera:associate-vault": "npx tsx scripts/associate-vault-tokens.ts"
+    "deploy:vault:mainnet": "npx tsx scripts/deploy-folio-vault.ts --mainnet",
+    "hedera:associate-vault": "npx tsx scripts/associate-vault-tokens.ts",
+    "hedera:associate-vault:mainnet": "npx tsx scripts/associate-vault-tokens.ts --mainnet"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.38",
@@ -47,6 +55,7 @@
     "@testing-library/react": "^16.3.2",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^16.4.5",
@@ -55,6 +64,7 @@
     "hardhat": "^2.28.0",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",
+    "pg": "^8.22.0",
     "tailwindcss": "^4",
     "ts-jest": "^29.4.9",
     "typescript": "^5"

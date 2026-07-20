@@ -1,23 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth, unauthorized } from '@/lib/auth';
+import { allowMintUsdc, getUsdcTokenId, isProduction } from '@/lib/network';
 
 const hederaConfigured = !!(
   process.env.HEDERA_OPERATOR_ID &&
   process.env.HEDERA_OPERATOR_KEY
 );
 
-// POST /api/admin/mint-treasury — mint USDC to the operator treasury
+// POST /api/admin/mint-treasury — mint USDC to the operator treasury (mock USDC only)
 export async function POST(req: NextRequest) {
   const auth = await verifyAuth(req);
   if (!auth.authenticated) return unauthorized(auth.error);
+
+  if (!allowMintUsdc() || isProduction()) {
+    return NextResponse.json(
+      { error: 'Treasury mint is disabled (mainnet / production uses real USDC)' },
+      { status: 403 }
+    );
+  }
 
   if (!hederaConfigured) {
     return NextResponse.json({ error: 'Hedera not configured' }, { status: 503 });
   }
 
-  const usdcTokenId = process.env.USDC_TEST_TOKEN_ID;
+  const usdcTokenId = getUsdcTokenId();
   if (!usdcTokenId) {
-    return NextResponse.json({ error: 'USDC_TEST_TOKEN_ID not set' }, { status: 503 });
+    return NextResponse.json({ error: 'USDC token not set' }, { status: 503 });
   }
 
   try {
@@ -75,9 +83,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Hedera not configured' }, { status: 503 });
   }
 
-  const usdcTokenId = process.env.USDC_TEST_TOKEN_ID;
+  const usdcTokenId = getUsdcTokenId();
   if (!usdcTokenId) {
-    return NextResponse.json({ error: 'USDC_TEST_TOKEN_ID not set' }, { status: 503 });
+    return NextResponse.json({ error: 'USDC token not set' }, { status: 503 });
   }
 
   try {

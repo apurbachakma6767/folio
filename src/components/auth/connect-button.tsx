@@ -9,9 +9,9 @@ export function ConnectButton() {
     return (
       <button
         onClick={() => setShowAuthFlow(true)}
-        className="btn-primary px-8 py-3 text-[15px]"
+        className="btn-primary px-5 py-2.5 text-[13px] md:px-6 md:py-2.5 md:text-[14px] whitespace-nowrap"
       >
-        Sign in
+        Log in
       </button>
     );
   }

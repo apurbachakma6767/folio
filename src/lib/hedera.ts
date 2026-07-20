@@ -9,6 +9,7 @@ import {
   TokenSupplyType,
   TokenAssociateTransaction,
   TokenMintTransaction,
+  TokenBurnTransaction,
   TransferTransaction,
   Transaction,
   AccountBalanceQuery,
@@ -31,22 +32,47 @@ import {
   TokenUnfreezeTransaction,
 } from '@hashgraph/sdk';
 import Long from 'long';
+import { getHederaNetwork, getInitialAccountHbar } from './network';
 
 // Module-level singleton (persists across warm serverless invocations)
 let clientInstance: Client | null = null;
+
+/** Reset client singleton (tests only). */
+export function resetHederaClientForTests(): void {
+  clientInstance = null;
+}
+
+/** Parse operator key: DER, ECDSA hex (64 chars), or SDK auto string. */
+export function parsePrivateKey(raw: string): PrivateKey {
+  const key = raw.trim();
+  if (!key) throw new Error('Empty private key');
+  // ECDSA raw hex (32 bytes) — common for mainnet portal exports
+  const hex = key.startsWith('0x') ? key.slice(2) : key;
+  if (/^[0-9a-fA-F]{64}$/.test(hex)) {
+    try {
+      return PrivateKey.fromStringECDSA(hex);
+    } catch {
+      return PrivateKey.fromStringED25519(hex);
+    }
+  }
+  try {
+    return PrivateKey.fromStringDer(key);
+  } catch {
+    return PrivateKey.fromString(key);
+  }
+}
 
 export function getClient(): Client {
   if (clientInstance) return clientInstance;
 
   const operatorId = process.env.HEDERA_OPERATOR_ID!;
-  const operatorKey = process.env.HEDERA_OPERATOR_KEY!;
+  const operatorKey = parsePrivateKey(process.env.HEDERA_OPERATOR_KEY!);
+  const network = getHederaNetwork();
 
-  clientInstance = Client.forTestnet();
-  clientInstance.setOperator(
-    AccountId.fromString(operatorId),
-    PrivateKey.fromStringDer(operatorKey)
-  );
-  clientInstance.setDefaultMaxTransactionFee(new Hbar(10));
+  clientInstance =
+    network === 'mainnet' ? Client.forMainnet() : Client.forTestnet();
+  clientInstance.setOperator(AccountId.fromString(operatorId), operatorKey);
+  clientInstance.setDefaultMaxTransactionFee(new Hbar(50));
 
   return clientInstance;
 }
@@ -56,10 +82,10 @@ export function getOperatorId(): AccountId {
 }
 
 export function getOperatorKey(): PrivateKey {
-  return PrivateKey.fromStringDer(process.env.HEDERA_OPERATOR_KEY!);
+  return parsePrivateKey(process.env.HEDERA_OPERATOR_KEY!);
 }
 
-// Create a fungible token (MOCK-TSLA or USDC-TEST)
+// Create a fungible token (equity HTS or USDC-TEST)
 export async function createFungibleToken(
   name: string,
   symbol: string,
@@ -86,6 +112,73 @@ export async function createFungibleToken(
   const receipt = await response.getReceipt(client);
 
   return receipt.tokenId!.toString();
+}
+
+/**
+ * Create Folio equity HTS token (shared by all users for this symbol).
+ * KYC + freeze keys match setup.ts stock tokens.
+ */
+export async function createEquityStockToken(
+  name: string,
+  symbol: string,
+  decimals: number = 6
+): Promise<string> {
+  const client = getClient();
+  const operatorKey = getOperatorKey();
+  const operatorId = getOperatorId();
+
+  const tx = new TokenCreateTransaction()
+    .setTokenName(name)
+    .setTokenSymbol(symbol)
+    .setTokenType(TokenType.FungibleCommon)
+    .setDecimals(decimals)
+    .setInitialSupply(0)
+    .setTreasuryAccountId(operatorId)
+    .setSupplyType(TokenSupplyType.Infinite)
+    .setSupplyKey(operatorKey.publicKey)
+    .setAdminKey(operatorKey.publicKey)
+    .setKycKey(operatorKey.publicKey)
+    .setFreezeKey(operatorKey.publicKey)
+    .setFreezeDefault(false)
+    // Mainnet multi-key HTS create is expensive (~10–20 ℏ); max must cover fee
+    .setMaxTransactionFee(new Hbar(25))
+    .freezeWith(client);
+
+  const signed = await tx.sign(operatorKey);
+  const response = await signed.execute(client);
+  const receipt = await response.getReceipt(client);
+  return receipt.tokenId!.toString();
+}
+
+/** True if account is associated with this HTS token. */
+export async function isTokenAssociated(
+  accountId: string,
+  tokenId: string
+): Promise<boolean> {
+  try {
+    const client = getClient();
+    const info = await new AccountInfoQuery()
+      .setAccountId(AccountId.fromString(accountId))
+      .execute(client);
+    const rel = info.tokenRelationships as Map<TokenId, { tokenId: TokenId }> | undefined;
+    if (rel && typeof rel.get === 'function') {
+      const tid = TokenId.fromString(tokenId);
+      if (rel.get(tid)) return true;
+      for (const [k] of rel) {
+        if (k.toString() === tokenId) return true;
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  // Balance map includes associated tokens (even at 0 on some mirror paths)
+  try {
+    const balances = await getTokenBalances(accountId);
+    if (balances.has(tokenId)) return true;
+  } catch {
+    /* */
+  }
+  return false;
 }
 
 // Create an NFT collection (SPEND-NOTE)
@@ -178,6 +271,7 @@ export async function mintSpendNote(metadata: Uint8Array): Promise<number> {
 }
 
 // Mint additional supply of a fungible token (operator must be supply key)
+// Mint lands in the treasury account; transfer out immediately so treasury does not hold inventory.
 export async function mintFungibleToken(
   tokenId: string,
   amount: number
@@ -186,6 +280,31 @@ export async function mintFungibleToken(
   const operatorKey = getOperatorKey();
 
   const tx = new TokenMintTransaction()
+    .setTokenId(TokenId.fromString(tokenId))
+    .setAmount(amount)
+    .freezeWith(client);
+
+  const signed = await tx.sign(operatorKey);
+  const response = await signed.execute(client);
+  await response.getReceipt(client);
+
+  return response.transactionId.toString();
+}
+
+/**
+ * Burn fungible tokens from the treasury (operator) account.
+ * Supply key must sign. Used so operator never retains equity inventory after sells
+ * or bootstrap cleanup — stocks live with users or in the vault when collared.
+ */
+export async function burnFungibleToken(
+  tokenId: string,
+  amount: number
+): Promise<string> {
+  if (amount <= 0) return 'noop';
+  const client = getClient();
+  const operatorKey = getOperatorKey();
+
+  const tx = new TokenBurnTransaction()
     .setTokenId(TokenId.fromString(tokenId))
     .setAmount(amount)
     .freezeWith(client);
@@ -257,10 +376,11 @@ export async function transferNft(
 export async function createAccount(): Promise<{ accountId: string; privateKey: string }> {
   const client = getClient();
   const newKey = PrivateKey.generateED25519();
+  const initialHbar = getInitialAccountHbar();
 
   const tx = new AccountCreateTransaction()
     .setKey(newKey.publicKey)
-    .setInitialBalance(new Hbar(5)) // Fund with 5 HBAR for testnet tx fees
+    .setInitialBalance(new Hbar(initialHbar))
     .freezeWith(client);
 
   const response = await tx.execute(client);
@@ -478,6 +598,17 @@ export async function getTokenBalances(
   return result;
 }
 
+/** HBAR balance in whole HBAR (not tinybars). */
+export async function getHbarBalance(accountId: string): Promise<number> {
+  const client = getClient();
+  const balance = await new AccountBalanceQuery()
+    .setAccountId(AccountId.fromString(accountId))
+    .execute(client);
+  const tiny = balance.hbars.toTinybars();
+  const n = typeof tiny.toNumber === 'function' ? Number(tiny.toString()) : Number(tiny);
+  return n / 100_000_000;
+}
+
 // --- Non-custodial helpers ---
 
 // Create account using a client-provided public key (no private key on server)
@@ -486,10 +617,13 @@ export async function createAccountWithPublicKey(
 ): Promise<string> {
   const client = getClient();
   const publicKey = PublicKey.fromString(publicKeyDer);
+  const initialHbar = getInitialAccountHbar();
 
   const tx = new AccountCreateTransaction()
     .setKey(publicKey)
-    .setInitialBalance(new Hbar(5))
+    .setInitialBalance(new Hbar(initialHbar))
+    // Auto-associate new equity HTS tokens (buy NVDA etc. without extra assoc step)
+    .setMaxAutomaticTokenAssociations(100)
     .freezeWith(client);
 
   const response = await tx.execute(client);
@@ -497,7 +631,12 @@ export async function createAccountWithPublicKey(
   return receipt.accountId!.toString();
 }
 
-// Prepare an unsigned token association transaction for client-side signing
+/** Operator is fee payer so user txs are gasless (user only signs). */
+function gaslessTxId(): TransactionId {
+  return TransactionId.generate(getOperatorId());
+}
+
+// Prepare an unsigned token association transaction for client-side signing (gasless)
 export async function prepareTokenAssociation(
   accountId: string,
   tokenIds: string[]
@@ -507,13 +646,14 @@ export async function prepareTokenAssociation(
   const tx = new TokenAssociateTransaction()
     .setAccountId(AccountId.fromString(accountId))
     .setTokenIds(tokenIds.map((id) => TokenId.fromString(id)))
+    .setTransactionId(gaslessTxId())
     .setTransactionValidDuration(180)
     .freezeWith(client);
 
   return tx.toBytes();
 }
 
-// Prepare an unsigned collateral lock transaction for client-side signing
+// Prepare an unsigned collateral lock transaction for client-side signing (gasless)
 export async function prepareCollateralLock(
   stockTokenId: string,
   userAccountId: string,
@@ -533,13 +673,14 @@ export async function prepareCollateralLock(
       operatorId,
       amount
     )
+    .setTransactionId(gaslessTxId())
     .setTransactionValidDuration(180)
     .freezeWith(client);
 
   return tx.toBytes();
 }
 
-// Prepare unsigned USDC repayment transaction (user → operator)
+// Prepare unsigned USDC repayment transaction (user → operator, gasless)
 export async function prepareRepayment(
   usdcTokenId: string,
   userAccountId: string,
@@ -559,6 +700,7 @@ export async function prepareRepayment(
       operatorId,
       amount
     )
+    .setTransactionId(gaslessTxId())
     .setTransactionValidDuration(180)
     .freezeWith(client);
 
@@ -625,24 +767,35 @@ export async function getFungibleTokenAllowance(
   return Long.ZERO;
 }
 
+/**
+ * User approves operator to move tokens (gasless fee payer = operator).
+ * Used so operator can pull collateral into vault without user-paid gas.
+ */
 export async function prepareTokenAllowanceForVault(
   tokenId: string,
   ownerAccountId: string,
-  vaultContractId: string,
+  _vaultContractId: string,
   amount: number | Long
 ): Promise<Uint8Array> {
   const client = getClient();
   const userId = AccountId.fromString(ownerAccountId);
-  const vault = ContractId.fromString(vaultContractId);
+  const spender = getOperatorId();
   const amt = Long.isLong(amount) ? amount : Long.fromNumber(amount);
+  // Operator pays fees; user signs to authorize allowance (gasless for user)
   const tx = new AccountAllowanceApproveTransaction()
-    .approveTokenAllowance(TokenId.fromString(tokenId), userId, vault, amt)
-    .setTransactionId(TransactionId.generate(userId))
+    .approveTokenAllowance(TokenId.fromString(tokenId), userId, spender, amt)
+    .setTransactionId(gaslessTxId())
     .setTransactionValidDuration(180)
     .freezeWith(client);
   return tx.toBytes();
 }
 
+/**
+ * Prepare vault deposit call. Fee payer = operator (gasless).
+ * User must still co-sign so the contract call is authorized for their allowance.
+ * On Hedera, when operator is payer, we use approved HTS pull via operator after allowance instead
+ * of user-paid deposit — see executeVaultDepositWithAllowance.
+ */
 export async function prepareVaultDeposit(
   vaultContractId: string,
   stockTokenId: string,
@@ -652,6 +805,8 @@ export async function prepareVaultDeposit(
   const client = getClient();
   const userId = AccountId.fromString(userAccountId);
   const tokenAddr = hexWith0x(TokenId.fromString(stockTokenId).toSolidityAddress());
+  // Keep user in transaction id for msg.sender on deposit(), but zero max fee so
+  // operator co-sign path still works when we fall back — prefer executeVaultDepositWithAllowance.
   const tx = new ContractExecuteTransaction()
     .setContractId(ContractId.fromString(vaultContractId))
     .setGas(800_000)
@@ -662,9 +817,40 @@ export async function prepareVaultDeposit(
         .addUint256(Long.fromNumber(amountHts))
     )
     .setTransactionId(TransactionId.generate(userId))
+    .setMaxTransactionFee(new Hbar(0))
     .setTransactionValidDuration(180)
     .freezeWith(client);
   return tx.toBytes();
+}
+
+/**
+ * Gasless vault custody: after user has approved vault, operator pulls tokens into vault
+ * account via HTS approved transfer (operator pays all fees).
+ */
+export async function executeVaultDepositWithAllowance(
+  vaultContractId: string,
+  stockTokenId: string,
+  userAccountId: string,
+  amountHts: number
+): Promise<string> {
+  const client = getClient();
+  const operatorKey = getOperatorKey();
+  const operatorId = getOperatorId();
+  const vaultId = AccountId.fromString(vaultContractId);
+  const userId = AccountId.fromString(userAccountId);
+  const token = TokenId.fromString(stockTokenId);
+
+  const tx = new TransferTransaction()
+    .addApprovedTokenTransfer(token, userId, -amountHts)
+    .addTokenTransfer(token, vaultId, amountHts)
+    .setTransactionId(TransactionId.generate(operatorId))
+    .setTransactionValidDuration(180)
+    .freezeWith(client);
+
+  await tx.sign(operatorKey);
+  const response = await tx.execute(client);
+  await response.getReceipt(client);
+  return response.transactionId.toString();
 }
 
 /** User-signed only (contract call / allowance); do not add operator signature. */
@@ -676,6 +862,14 @@ export async function submitClientSignedTransaction(signedTxBytes: Uint8Array): 
   return response.transactionId.toString();
 }
 
+/**
+ * Return collateral from vault to user.
+ *
+ * Deposit path uses HTS approved transfers into the vault *account* (not Solidity
+ * deposit()). Tokens therefore sit as HTS balances on the contract account.
+ * Calling Solidity `release()` → IERC20.transfer often reverts for that path.
+ * Instead: HTS TransferTransaction vault → user, signed by vault admin (operator).
+ */
 export async function executeVaultRelease(
   vaultContractId: string,
   stockTokenId: string,
@@ -684,19 +878,19 @@ export async function executeVaultRelease(
 ): Promise<string> {
   const client = getClient();
   const operatorKey = getOperatorKey();
-  const userAddr = hexWith0x(AccountId.fromString(userAccountId).toSolidityAddress());
-  const tokenAddr = hexWith0x(TokenId.fromString(stockTokenId).toSolidityAddress());
-  const tx = new ContractExecuteTransaction()
-    .setContractId(ContractId.fromString(vaultContractId))
-    .setGas(800_000)
-    .setFunction(
-      'release',
-      new ContractFunctionParameters()
-        .addAddress(tokenAddr)
-        .addAddress(userAddr)
-        .addUint256(Long.fromNumber(amountHts))
-    )
+  const operatorId = getOperatorId();
+  const vaultId = AccountId.fromString(vaultContractId);
+  const userId = AccountId.fromString(userAccountId);
+  const token = TokenId.fromString(stockTokenId);
+
+  const tx = new TransferTransaction()
+    .addTokenTransfer(token, vaultId, -amountHts)
+    .addTokenTransfer(token, userId, amountHts)
+    .setTransactionId(TransactionId.generate(operatorId))
+    .setTransactionValidDuration(180)
     .freezeWith(client);
+
+  // Vault admin key (operator) must authorize spending vault's HTS balance
   await tx.sign(operatorKey);
   const response = await tx.execute(client);
   await response.getReceipt(client);

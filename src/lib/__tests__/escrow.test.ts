@@ -45,7 +45,7 @@ import { executeRepayment, executeExpiredSettlement } from '../escrow';
 
 const activeNote = {
   id: 1,
-  symbol: 'MOCK-TSLA',
+  symbol: 'TSLA',
   serial: 1,
   recipient: '0.0.12345',
   recipientName: 'Test',

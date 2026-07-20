@@ -77,7 +77,7 @@ export default function Confirmation({ result, onViewDetails, onDone }: Confirma
           Back to Portfolio
         </button>
         <a
-          href={`https://hashscan.io/testnet/transaction/${result.txId}`}
+          href={`${process.env.NEXT_PUBLIC_HASHSCAN_BASE || 'https://hashscan.io/testnet'}/transaction/${result.txId}`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-center text-[12px] py-2"

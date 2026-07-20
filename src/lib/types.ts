@@ -30,3 +30,19 @@ export const DEMO_HOLDINGS: Holding[] = [
   { symbol: 'TSLA', name: 'Tesla', shares: 44, icon: 'T', gradient: SYMBOL_GRADIENTS.TSLA },
   { symbol: 'AAPL', name: 'Apple', shares: 10, icon: 'A', gradient: SYMBOL_GRADIENTS.AAPL },
 ];
+
+/** Symbols available in Trade (quotes via price API; HTS mint when token configured). */
+export const TRADE_STOCKS: { symbol: string; name: string }[] = [
+  { symbol: 'TSLA', name: 'Tesla' },
+  { symbol: 'AAPL', name: 'Apple' },
+  { symbol: 'NVDA', name: 'NVIDIA' },
+  { symbol: 'MSFT', name: 'Microsoft' },
+  { symbol: 'AMZN', name: 'Amazon' },
+  { symbol: 'GOOGL', name: 'Alphabet' },
+  { symbol: 'META', name: 'Meta' },
+  { symbol: 'NFLX', name: 'Netflix' },
+  { symbol: 'AMD', name: 'AMD' },
+  { symbol: 'INTC', name: 'Intel' },
+  { symbol: 'CRM', name: 'Salesforce' },
+  { symbol: 'COIN', name: 'Coinbase' },
+];

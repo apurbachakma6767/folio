@@ -3,6 +3,7 @@ import { getUser } from '@/lib/user-registry';
 import { getTokenIdForSymbol } from '@/lib/token-registry';
 import { DEMO_HOLDINGS } from '@/lib/types';
 import { verifyAuth, unauthorized } from '@/lib/auth';
+import { allowAutoFundUsdc, allowDemoMintStock, getUsdcTokenId } from '@/lib/network';
 
 const hederaConfigured = !!(
   process.env.HEDERA_OPERATOR_ID &&
@@ -52,43 +53,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Grant KYC and unfreeze for stock tokens (they have freezeDefault=true + KYC key)
-    const stockSymbols = ['TSLA', 'AAPL'];
-    for (const symbol of stockSymbols) {
-      const tokenId = getTokenIdForSymbol(symbol);
-      if (tokenId) {
-        try { await grantKyc(tokenId, user.hederaAccountId); } catch { /* already granted */ }
-        try { await unfreezeAccount(tokenId, user.hederaAccountId); } catch { /* already unfrozen */ }
-      }
-    }
-
-    // Mint demo stock tokens — check on-chain balance first to avoid double-minting
+    // Registration only associates USDC + Spend Note. Equity KYC/associate happens on Trade/Spend.
+    // Optional demo equity mint (OFF on mainnet/production by default).
     const operatorId = getOperatorId().toString();
     const HTS_DECIMALS = 6;
     const userBalances = await getTokenBalances(user.hederaAccountId);
-    for (const holding of DEMO_HOLDINGS) {
-      const tokenId = getTokenIdForSymbol(holding.symbol);
-      if (tokenId) {
-        const targetAmount = Math.floor(holding.shares * 10 ** HTS_DECIMALS);
-        const currentBalance = userBalances.get(tokenId) ?? 0;
-        if (currentBalance >= targetAmount) {
-          console.log(`[register/complete] ${holding.symbol} already has ${currentBalance} >= ${targetAmount}, skipping`);
-          continue;
-        }
-        const deficit = targetAmount - currentBalance;
-        try {
-          await mintFungibleToken(tokenId, deficit);
-          await transferToken(tokenId, operatorId, user.hederaAccountId, deficit);
-          console.log(`[register/complete] Minted ${deficit} ${holding.symbol} (deficit) to ${user.hederaAccountId}`);
-        } catch (err) {
-          console.error(`[register/complete] Failed to mint ${holding.symbol}:`, err);
+    if (allowDemoMintStock()) {
+      for (const holding of DEMO_HOLDINGS) {
+        const tokenId = getTokenIdForSymbol(holding.symbol);
+        if (tokenId) {
+          try { await grantKyc(tokenId, user.hederaAccountId); } catch { /* already granted */ }
+          try { await unfreezeAccount(tokenId, user.hederaAccountId); } catch { /* already unfrozen */ }
+          const targetAmount = Math.floor(holding.shares * 10 ** HTS_DECIMALS);
+          const currentBalance = userBalances.get(tokenId) ?? 0;
+          if (currentBalance >= targetAmount) {
+            console.log(`[register/complete] ${holding.symbol} already has ${currentBalance} >= ${targetAmount}, skipping`);
+            continue;
+          }
+          const deficit = targetAmount - currentBalance;
+          try {
+            await mintFungibleToken(tokenId, deficit);
+            await transferToken(tokenId, operatorId, user.hederaAccountId, deficit);
+            console.log(`[register/complete] Minted ${deficit} ${holding.symbol} (deficit) to ${user.hederaAccountId}`);
+          } catch (err) {
+            console.error(`[register/complete] Failed to mint ${holding.symbol}:`, err);
+          }
         }
       }
+    } else {
+      console.log('[register/complete] Demo stock mint disabled — user starts with 0 equity HTS');
     }
 
-    // Fund with USDC from treasury if user has none
-    const usdcId = process.env.USDC_TEST_TOKEN_ID;
-    if (usdcId) {
+    // Free USDC airdrop — testnet only (never on mainnet with real Circle USDC)
+    const usdcId = getUsdcTokenId();
+    if (allowAutoFundUsdc() && usdcId) {
       const usdcBalance = userBalances.get(usdcId) ?? 0;
       if (usdcBalance === 0) {
         const fundAmount = 500_000_000; // 500 USDC (6 decimals)

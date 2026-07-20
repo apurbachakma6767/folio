@@ -5,6 +5,8 @@ import { issueVirtualCard } from '@/lib/lithic';
 import { getTokenIdForSymbol } from '@/lib/token-registry';
 import { verifyAuth, unauthorized } from '@/lib/auth';
 import { optimizeCollar, calculateOptimizedCollar } from '@/lib/ai-collar-optimizer';
+import { allowMintUsdc, getUsdcTokenId, isMainnet } from '@/lib/network';
+import { assertSpendAllowed, assertVaultRequirement } from '@/lib/spend-guards';
 
 // Plain-English AI one-liner for the confirmation screen
 function generateExecuteOneLiner(symbol: string, changePercent: number, riskLevel: string, warnings: string[]): string {
@@ -61,6 +63,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'userAccountId required' }, { status: 400 });
     }
 
+    const guard = await assertSpendAllowed(amount, userAccountId);
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
+
+    // Mainnet: no demo cards — users apply via /api/cards/apply
+    if (issueCard && isMainnet()) {
+      return NextResponse.json(
+        {
+          error:
+            'Card issuing is not available yet. Submit a card application from the Cards page.',
+        },
+        { status: 403 }
+      );
+    }
+
     // Fetch stock price
     const priceData = await getStockPrice(symbol);
 
@@ -84,6 +102,8 @@ export async function POST(req: NextRequest) {
 
     let txId = '';
 
+    const { hydrateTokenRegistryFromDb } = await import('@/lib/token-registry');
+    await hydrateTokenRegistryFromDb();
     const stockTokenId = getTokenIdForSymbol(symbol);
     if (hederaConfigured && stockTokenId) {
       const hedera = await import('@/lib/hedera');
@@ -100,22 +120,35 @@ export async function POST(req: NextRequest) {
         getTokenBalances,
       } = hedera;
       const operatorId = getOperatorId().toString();
-      const usdcTokenId = process.env.USDC_TEST_TOKEN_ID!;
+      const usdcTokenId = getUsdcTokenId();
       const noteTokenId = process.env.SPEND_NOTE_TOKEN_ID!;
+      if (!usdcTokenId) {
+        return NextResponse.json({ error: 'USDC token not configured' }, { status: 503 });
+      }
+
+      const vaultOk = assertVaultRequirement(isFolioVaultConfigured());
+      if (!vaultOk.ok) {
+        return NextResponse.json({ error: vaultOk.error }, { status: vaultOk.status });
+      }
 
       if (isFolioVaultConfigured()) {
-        if (!signedVaultDepositTxBytes) {
-          return NextResponse.json(
-            { error: 'Vault deposit signature is required. Please try again.' },
-            { status: 400 }
-          );
-        }
+        const {
+          executeVaultDepositWithAllowance,
+          getFolioVaultContractId,
+          submitSignedTransaction: cosignSubmit,
+        } = hedera;
+        // Allowance is gasless (operator pays); user signature authorizes spend of their tokens
         if (signedAllowanceTxBytes) {
           const allowBytes = Uint8Array.from(Buffer.from(signedAllowanceTxBytes, 'base64'));
-          await submitClientSignedTransaction(allowBytes);
+          await cosignSubmit(allowBytes);
         }
-        const depBytes = Uint8Array.from(Buffer.from(signedVaultDepositTxBytes, 'base64'));
-        txId = await submitClientSignedTransaction(depBytes);
+        // Operator pulls collateral into vault using allowance — fully gasless for user
+        txId = await executeVaultDepositWithAllowance(
+          getFolioVaultContractId(),
+          stockTokenId,
+          userAccountId,
+          collar.sharesHts
+        );
       } else {
         if (!signedCollateralTxBytes) {
           return NextResponse.json(
@@ -127,15 +160,24 @@ export async function POST(req: NextRequest) {
         txId = await submitSignedTransaction(bytes);
       }
 
-      // Pre-flight: auto-mint USDC if treasury is low (testnet only)
+      // Pre-flight: treasury must hold enough USDC (never mint Circle USDC on mainnet)
       const treasuryBalances = await getTokenBalances(operatorId);
       const treasuryUsdc = treasuryBalances.get(usdcTokenId) ?? 0;
       if (treasuryUsdc < collar.advanceHts) {
-        const deficit = collar.advanceHts - treasuryUsdc;
-        // Mint deficit + 10,000 USDC buffer so we don't mint on every spend
-        const mintAmount = deficit + 10_000_000_000;
-        await mintFungibleToken(usdcTokenId, mintAmount);
-        console.log(`[treasury] Auto-minted ${mintAmount / 1_000_000} USDC to cover advance`);
+        if (allowMintUsdc()) {
+          const deficit = collar.advanceHts - treasuryUsdc;
+          const mintAmount = deficit + 10_000_000_000;
+          await mintFungibleToken(usdcTokenId, mintAmount);
+          console.log(`[treasury] Auto-minted ${mintAmount / 1_000_000} USDC to cover advance`);
+        } else {
+          return NextResponse.json(
+            {
+              error:
+                'Treasury USDC balance is too low for this advance. Try a smaller amount or contact the operator.',
+            },
+            { status: 503 }
+          );
+        }
       }
 
       // Transfer USDC advance (operator-only, no user signature needed)
@@ -146,7 +188,7 @@ export async function POST(req: NextRequest) {
       const now = new Date().toISOString();
       const { serial } = await mintSpendNoteWithIpfs({
         name: `Spend Note #${Date.now()}`,
-        asset: `MOCK-${symbol}`,
+        asset: symbol,
         shares_collared: collar.sharesHts,
         stock_price_at_spend: Math.floor(priceData.price * 1e6),
         collar_floor: Math.floor(collar.floor * 1e6),

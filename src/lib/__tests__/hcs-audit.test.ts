@@ -83,7 +83,7 @@ afterAll(() => {
 describe('escrow audit failure resilience', () => {
   const activeNote = {
     id: 1,
-    symbol: 'MOCK-TSLA',
+    symbol: 'TSLA',
     serial: 1,
     recipient: '0.0.12345',
     recipientName: 'Test',

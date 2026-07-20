@@ -14,6 +14,8 @@ import NotesList from '@/components/NotesList';
 import NoteDetail from '@/components/NoteDetail';
 import Settings from '@/components/Settings';
 import Spinner from '@/components/Spinner';
+import Wallet from '@/components/Wallet';
+import Trade from '@/components/Trade';
 import { AuthGuard } from '@/components/auth/auth-guard';
 import { usePlaidHoldings } from '@/lib/use-plaid-holdings';
 import { useUserRegistration } from '@/lib/use-user-registration';
@@ -21,8 +23,9 @@ import AiBubble from '@/components/AiBubble';
 import type { ActiveNote } from '@/components/AiBubble';
 import { authFetch } from '@/lib/use-auth-fetch';
 import type { Holding } from '@/lib/types';
+import { TRADE_STOCKS } from '@/lib/types';
 
-export type Screen = 'portfolio' | 'stock-detail' | 'spend' | 'confirm' | 'card-result' | 'card-detail' | 'cards' | 'notes' | 'note-detail' | 'settings';
+export type Screen = 'portfolio' | 'stock-detail' | 'spend' | 'confirm' | 'card-result' | 'card-detail' | 'cards' | 'notes' | 'note-detail' | 'settings' | 'wallet' | 'trade';
 
 export interface PriceData {
   symbol: string;
@@ -85,6 +88,7 @@ export default function Home() {
     folioUser,
     needsPassphrase,
     needsRecovery,
+    needsBackupOnly,
     isNewUser,
     submitPassphrase,
     submitRecoveryPassphrase,
@@ -108,11 +112,13 @@ export default function Home() {
     notes: 'notes',
     'note-detail': 'notes',
     settings: 'settings',
+    wallet: 'wallet',
+    trade: 'trade',
   };
 
   const fetchNotes = useCallback(async () => {
     try {
-      const res = await authFetch('/api/notes');
+      const res = await authFetch('/api/notes?scope=main');
       const data = await res.json();
       const notes = (data.notes ?? [])
         .filter((n: ActiveNote) => n.status === 'active')
@@ -137,8 +143,8 @@ export default function Home() {
         .filter((h) => h.shares > 0)
         .map((h) => h.symbol);
       const noteSymbols = activeNotes.map((n) => n.symbol);
-      // Always include TSLA and AAPL for fallback display
-      const allSymbols = [...new Set(['TSLA', 'AAPL', ...symbols, ...noteSymbols])];
+      const tradeSymbols = TRADE_STOCKS.map((s) => s.symbol);
+      const allSymbols = [...new Set([...tradeSymbols, ...symbols, ...noteSymbols])];
       const query = allSymbols.length > 0 ? `?symbols=${allSymbols.join(',')}` : '';
 
       const res = await authFetch(`/api/price${query}`);
@@ -229,16 +235,24 @@ export default function Home() {
               </div>
               <div className="text-[18px] font-bold" style={{ color: 'var(--text-primary)' }}>
                 {regStatus === 'generating-key' ? 'Generating wallet key...'
-                  : regStatus === 'creating-account' ? 'Creating Hedera account...'
-                  : regStatus === 'signing-association' ? 'Signing token associations...'
+                  : regStatus === 'loading' ? 'Loading your account...'
+                  : regStatus === 'creating-account' ? 'Opening your wallet...'
+                  : regStatus === 'signing-association' ? 'Linking tokens...'
                   : regStatus === 'completing' ? 'Completing setup...'
-                  : regStatus === 'encrypting-key' ? 'Encrypting & backing up key...'
-                  : regStatus === 'recovering-key' ? 'Decrypting wallet...'
+                  : regStatus === 'encrypting-key' ? 'Securing wallet...'
+                  : regStatus === 'recovering-key' ? 'Restoring wallet...'
                   : 'Setting up...'}
               </div>
               <div className="text-[13px]" style={{ color: 'var(--text-tertiary)' }}>
-                This only takes a few seconds
+                {regStatus === 'creating-account'
+                  ? 'Creating your Hedera account on mainnet…'
+                  : 'This only takes a few seconds'}
               </div>
+              {regError && (
+                <div className="text-[13px] mt-2" style={{ color: 'var(--negative)' }}>
+                  {regError}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -261,12 +275,18 @@ export default function Home() {
                   </svg>
                 </div>
                 <div className="text-[20px] font-bold" style={{ color: 'var(--text-primary)' }}>
-                  {isNewUser ? 'Create Passphrase' : 'Enter Passphrase'}
+                  {isNewUser
+                    ? 'Create Passphrase'
+                    : needsBackupOnly
+                      ? 'Verify Passphrase'
+                      : 'Unlock Wallet'}
                 </div>
                 <div className="text-[13px] mt-2 leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
                   {isNewUser
                     ? 'This passphrase encrypts your wallet key. You\'ll need it to log in on a new device.'
-                    : 'Enter the passphrase you created during registration to unlock your wallet.'}
+                    : needsBackupOnly
+                      ? 'Your account already exists. Enter your passphrase (6+ characters) to verify and secure recovery on this device. No new wallet is created.'
+                      : 'Enter the passphrase you created for this email. Your existing account will be restored — a new wallet is not created.'}
                 </div>
               </div>
 
@@ -306,10 +326,14 @@ export default function Home() {
                   ? (regStatus === 'generating-key' ? 'Generating key...'
                     : regStatus === 'creating-account' ? 'Creating account...'
                     : regStatus === 'signing-association' ? 'Signing...'
-                    : regStatus === 'encrypting-key' ? 'Encrypting...'
-                    : regStatus === 'recovering-key' ? 'Decrypting...'
+                    : regStatus === 'encrypting-key' ? 'Verifying...'
+                    : regStatus === 'recovering-key' ? 'Restoring wallet...'
                     : 'Setting up...')
-                  : (isNewUser ? 'Create Wallet' : 'Unlock Wallet')}
+                  : (isNewUser
+                    ? 'Create Wallet'
+                    : needsBackupOnly
+                      ? 'Verify'
+                      : 'Unlock Wallet')}
               </button>
 
               {isNewUser && (
@@ -326,14 +350,14 @@ export default function Home() {
 
   return (
     <AuthGuard>
-    <div className="flex min-h-screen">
+    <div className="app-shell">
       <Sidebar activeTab={navMap[screen]} onNavigate={(s) => {
         if (s === 'spend') setSpendMode('send');
         setScreen(s as Screen);
       }} />
 
-      <main className="flex-1 flex justify-center pb-20 md:pb-0 main-gradient">
-        <div className="w-full max-w-[420px] md:max-w-[640px] px-6 py-10">
+      <main className="flex justify-center pb-24 md:pb-0 main-gradient">
+        <div className="w-full max-w-[420px] md:max-w-[640px] px-5 md:px-8 py-8 md:py-10">
           {screen === 'portfolio' && (
             <Portfolio
               holdings={holdings}
@@ -370,7 +394,7 @@ export default function Home() {
           {screen === 'spend' && (
             <SpendFlow
               mode={spendMode}
-              selectedHolding={selectedHolding || holdings.find((h) => h.shares > 0) || holdings[0]}
+              selectedHolding={selectedHolding || holdings.find((h) => h.shares > 0) || holdings[0] || null}
               holdings={holdings}
               prices={prices}
               currentUserAccountId={folioUser?.hederaAccountId}
@@ -426,10 +450,30 @@ export default function Home() {
           )}
           {screen === 'settings' && (
             <Settings
-              plaidStatus={plaidStatus}
-              isPlaidAvailable={isPlaidAvailable}
-              isDemo={isDemo}
-              onConnectBrokerage={openLink}
+              onOpenCards={() => setScreen('cards')}
+              onOpenNotes={() => setScreen('notes')}
+            />
+          )}
+          {screen === 'wallet' && (
+            <Wallet
+              hederaAccountId={folioUser?.hederaAccountId}
+              onRefreshPortfolio={fetchCryptoBalances}
+            />
+          )}
+          {screen === 'trade' && (
+            <Trade
+              prices={prices}
+              stockHoldings={holdings}
+              usdcBalance={
+                cryptoHoldings.find((h) => h.symbol === 'USDC')?.shares ?? 0
+              }
+              onHoldingsChanged={() => {
+                fetchCryptoBalances();
+                // Refresh HTS portfolio equities (usePlaidHoldings listens via account)
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new Event('folio:holdings-refresh'));
+                }
+              }}
             />
           )}
         </div>

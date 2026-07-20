@@ -3,6 +3,7 @@ import { getTokenRegistry } from '@/lib/token-registry';
 import { SYMBOL_GRADIENTS, DEFAULT_GRADIENT } from '@/lib/types';
 import { verifyAuth, unauthorized } from '@/lib/auth';
 import { getNotes } from '@/lib/spend-notes';
+import { allowAutoFundUsdc, getUsdcTokenId } from '@/lib/network';
 
 const hederaConfigured = !!(
   process.env.HEDERA_OPERATOR_ID &&
@@ -24,28 +25,32 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { getTokenBalances, transferToken } = await import('@/lib/hedera');
+    const { getTokenBalances, transferToken, getHbarBalance } = await import('@/lib/hedera');
     const balances = await getTokenBalances(accountId);
+    let hbar = 0;
+    try {
+      hbar = await getHbarBalance(accountId);
+    } catch (e) {
+      console.warn('[balances] HBAR query failed', e);
+    }
     const registry = getTokenRegistry();
 
-    // Auto-fund: if user has < 100 USDC, top up from treasury (demo mode)
-    const usdcId = process.env.USDC_TEST_TOKEN_ID;
+    // Auto-fund free USDC — testnet demo only (disabled on mainnet / production)
+    const usdcId = getUsdcTokenId();
     const operatorId = process.env.HEDERA_OPERATOR_ID;
-    if (usdcId && operatorId && accountId !== operatorId) {
+    if (allowAutoFundUsdc() && usdcId && operatorId && accountId !== operatorId) {
       const usdcEntry = registry.find((t) => t.tokenId === usdcId);
       const rawUsdcBalance = balances.get(usdcId) ?? 0;
       const usdcBalance = usdcEntry ? rawUsdcBalance / 10 ** usdcEntry.decimals : 0;
       if (usdcBalance < 100) {
         try {
           const fundAmount = 500_000_000; // 500 USDC (6 decimals)
-          // Check treasury has enough before auto-funding
           const treasuryBalances = await getTokenBalances(operatorId);
           const treasuryUsdc = treasuryBalances.get(usdcId) ?? 0;
           if (treasuryUsdc < fundAmount) {
             console.warn(`Auto-fund skipped: treasury USDC balance (${treasuryUsdc}) < fund amount (${fundAmount})`);
           } else {
             await transferToken(usdcId, operatorId, accountId, fundAmount);
-            // Re-fetch balances after funding
             const updated = await getTokenBalances(accountId);
             balances.clear();
             updated.forEach((v, k) => balances.set(k, v));
@@ -117,9 +122,14 @@ export async function GET(req: NextRequest) {
       })
       .filter((h) => h.shares > 0);
 
-    return NextResponse.json({ holdings });
+    return NextResponse.json({
+      holdings,
+      hbar,
+      accountId,
+      network: process.env.HEDERA_NETWORK || 'testnet',
+    });
   } catch (error) {
     console.error('User balances error:', error);
-    return NextResponse.json({ holdings: [] }, { status: 500 });
+    return NextResponse.json({ holdings: [], hbar: 0 }, { status: 500 });
   }
 }

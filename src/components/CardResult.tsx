@@ -150,13 +150,13 @@ export default function CardResult({ result, onViewCardDetail, onDone }: CardRes
       {/* Hedera TX */}
       <div className="text-[11px] mb-6 font-mono" style={{ color: 'var(--text-tertiary)' }}>
         <a
-          href={`https://hashscan.io/testnet/transaction/${result.txId}`}
+          href={`${process.env.NEXT_PUBLIC_HASHSCAN_BASE || 'https://hashscan.io/testnet'}/transaction/${result.txId}`}
           target="_blank"
           rel="noopener noreferrer"
           className="hover:underline"
           style={{ color: 'var(--text-tertiary)' }}
         >
-          View on Hedera Testnet
+          View on HashScan
         </a>
       </div>
 

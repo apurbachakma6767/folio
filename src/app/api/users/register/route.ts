@@ -1,12 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUser, registerUser } from '@/lib/user-registry';
-import { getTokenIdForSymbol } from '@/lib/token-registry';
 import { verifyAuth, unauthorized } from '@/lib/auth';
 
 const hederaConfigured = !!(
   process.env.HEDERA_OPERATOR_ID &&
   process.env.HEDERA_OPERATOR_KEY
 );
+
+/**
+ * Tokens to associate at registration.
+ * Keep this small: USDC + Spend Note only.
+ * Equity HTS associate on-demand at Trade/Spend (prepare routes) so signup
+ * does not build a 14-token association that fails/hangs on mainnet.
+ */
+async function bootstrapTokenIdsForAssociation(): Promise<string[]> {
+  const tokenIds: string[] = [];
+  const { getUsdcTokenId } = await import('@/lib/network');
+  const usdcId = getUsdcTokenId();
+  const noteId = process.env.SPEND_NOTE_TOKEN_ID?.trim();
+  if (usdcId) tokenIds.push(usdcId);
+  if (noteId) tokenIds.push(noteId);
+  return tokenIds;
+}
 
 export async function POST(req: NextRequest) {
   const auth = await verifyAuth(req);
@@ -22,44 +37,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'publicKey required' }, { status: 400 });
     }
 
-    // Check if user already exists
+    // Check if user already exists — NEVER create a second Hedera account for same email
     const existing = await getUser(email);
     if (existing) {
-      // For existing users, check if they need provisioning (interrupted registration)
-      // Skip if they already have stock tokens on-chain
-      if (hederaConfigured && existing.hederaAccountId && !existing.hederaAccountId.startsWith('0.0.1')) {
-        try {
-          const { prepareTokenAssociation, getTokenBalances } = await import('@/lib/hedera');
-
-          // Check if user already has stock tokens — if so, skip re-provisioning
-          const balances = await getTokenBalances(existing.hederaAccountId);
-          const tslaId = getTokenIdForSymbol('TSLA');
-          const hasTokens = tslaId && (balances.get(tslaId) ?? 0) > 0;
-
-          if (!hasTokens) {
-            const tokenIds = ['TSLA', 'AAPL']
-              .map(getTokenIdForSymbol)
-              .filter(Boolean) as string[];
-            const usdcId = process.env.USDC_TEST_TOKEN_ID;
-            const noteId = process.env.SPEND_NOTE_TOKEN_ID;
-            if (usdcId) tokenIds.push(usdcId);
-            if (noteId) tokenIds.push(noteId);
-
-            if (tokenIds.length > 0) {
-              const txBytes = await prepareTokenAssociation(existing.hederaAccountId, tokenIds);
-              const tokenAssocTxBytes = Buffer.from(txBytes).toString('base64');
-              return NextResponse.json({
-                user: existing,
-                needsTokenAssociation: true,
-                tokenAssocTxBytes,
-              });
-            }
-          }
-        } catch (err) {
-          console.log('[register] Could not check/prepare token assoc for existing user:', err instanceof Error ? err.message : err);
-        }
+      // Optionally refresh public_key if client still has matching wallet (do not change account id)
+      if (
+        publicKey &&
+        existing.publicKey &&
+        publicKey !== existing.publicKey
+      ) {
+        console.warn(
+          `[register] existing user ${email} presented a different publicKey — ignoring (keep hedera ${existing.hederaAccountId})`
+        );
       }
-      return NextResponse.json({ user: existing });
+      return NextResponse.json({
+        user: existing,
+        created: false,
+        needsTokenAssociation: false,
+      });
     }
 
     let hederaAccountId = `0.0.${Date.now()}`; // Demo fallback
@@ -67,25 +62,29 @@ export async function POST(req: NextRequest) {
 
     if (hederaConfigured) {
       const { createAccountWithPublicKey, prepareTokenAssociation } = await import('@/lib/hedera');
+      // 1) Create Hedera account
       hederaAccountId = await createAccountWithPublicKey(publicKey);
-
-      // Prepare unsigned token association for client to sign
-      const tokenIds = ['TSLA', 'AAPL']
-        .map(getTokenIdForSymbol)
-        .filter(Boolean) as string[];
-
-      const usdcId = process.env.USDC_TEST_TOKEN_ID;
-      const noteId = process.env.SPEND_NOTE_TOKEN_ID;
-      if (usdcId) tokenIds.push(usdcId);
-      if (noteId) tokenIds.push(noteId);
-
-      if (tokenIds.length > 0) {
-        const txBytes = await prepareTokenAssociation(hederaAccountId, tokenIds);
-        tokenAssocTxBytes = Buffer.from(txBytes).toString('base64');
-      }
     }
 
+    // 2) Persist user immediately so DB has a row even if association fails later
     const user = await registerUser(email, name || '', hederaAccountId, publicKey);
+
+    // 3) Optional bootstrap assoc: USDC + Spend Note only (equities on Trade/Spend)
+    if (hederaConfigured) {
+      try {
+        const { prepareTokenAssociation } = await import('@/lib/hedera');
+        const tokenIds = await bootstrapTokenIdsForAssociation();
+        if (tokenIds.length > 0) {
+          const txBytes = await prepareTokenAssociation(hederaAccountId, tokenIds);
+          tokenAssocTxBytes = Buffer.from(txBytes).toString('base64');
+        }
+      } catch (assocPrepErr) {
+        console.warn(
+          '[register] token assoc prep failed (user already in DB):',
+          assocPrepErr instanceof Error ? assocPrepErr.message : assocPrepErr
+        );
+      }
+    }
 
     return NextResponse.json({
       user,

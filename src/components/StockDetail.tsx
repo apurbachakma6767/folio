@@ -87,7 +87,13 @@ export default function StockDetail({ holding, price, totalPortfolioValue, onBac
         {(isCrypto ? [
           { label: 'Balance', value: `${holding.shares.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${holding.symbol}` },
           { label: 'Value', value: `$${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-          { label: 'Network', value: 'Hedera Testnet' },
+          {
+            label: 'Network',
+            value:
+              process.env.NEXT_PUBLIC_HEDERA_NETWORK === 'mainnet'
+                ? 'Hedera Mainnet'
+                : 'Hedera Testnet',
+          },
         ] : [
           { label: 'Shares', value: holding.shares.toLocaleString() },
           { label: 'Market Price', value: priceLoaded ? `$${unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '···' },

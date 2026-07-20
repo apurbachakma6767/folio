@@ -141,6 +141,28 @@ export async function getNotes(userAccountId?: string): Promise<SpendNote[]> {
   return (data ?? []).map(rowToNote);
 }
 
+/** Notes where the account sent OR received (for activity feed). */
+export async function getNotesForAccount(
+  accountId: string
+): Promise<Array<SpendNote & { direction: 'sent' | 'received' }>> {
+  const { data, error } = await supabase
+    .from('spend_notes')
+    .select()
+    .or(`user_account_id.eq.${accountId},recipient_account_id.eq.${accountId}`)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row: NoteRow) => {
+    const note = rowToOrderNote(row);
+    const direction: 'sent' | 'received' =
+      note.userAccountId === accountId ? 'sent' : 'received';
+    return { ...note, direction };
+  });
+}
+
+function rowToOrderNote(row: NoteRow): SpendNote {
+  return rowToNote(row);
+}
+
 export async function getNote(id: number): Promise<SpendNote | undefined> {
   const { data, error } = await supabase
     .from('spend_notes')

@@ -13,6 +13,7 @@ import {
   coreAccountQueryPluginToolNames,
 } from 'hedera-agent-kit';
 import { Client, PrivateKey } from '@hashgraph/sdk';
+import { getHederaNetwork } from './network';
 
 // Relevant tool names for Folio's use case (scoped to what the agent needs)
 const FOLIO_TOOLS = [
@@ -39,7 +40,9 @@ export function getHederaAgentToolkit(): HederaAIToolkit | null {
   const operatorKey = process.env.HEDERA_OPERATOR_KEY;
   if (!operatorId || !operatorKey) return null;
 
-  const client = Client.forTestnet().setOperator(operatorId, PrivateKey.fromStringDer(operatorKey));
+  const network = getHederaNetwork();
+  const base = network === 'mainnet' ? Client.forMainnet() : Client.forTestnet();
+  const client = base.setOperator(operatorId, PrivateKey.fromStringDer(operatorKey));
 
   toolkitInstance = new HederaAIToolkit({
     // @hashgraph/sdk version mismatch between project and hedera-agent-kit bundle
@@ -58,21 +61,31 @@ export function getHederaAgentToolkit(): HederaAIToolkit | null {
 
 /** System prompt that gives the agent Folio-specific context */
 export function getFolioAgentSystemPrompt(): string {
+  const equityLines = ['TSLA', 'AAPL', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'CRM', 'COIN']
+    .map((sym) => {
+      const id =
+        process.env[`${sym}_TOKEN_ID`]?.trim() ||
+        process.env[`MOCK_${sym}_TOKEN_ID`]?.trim();
+      return id ? `${sym} token: ${id}` : null;
+    })
+    .filter(Boolean);
+
   const tokenInfo = [
-    process.env.MOCK_TSLA_TOKEN_ID ? `MOCK-TSLA token: ${process.env.MOCK_TSLA_TOKEN_ID}` : null,
-    process.env.MOCK_AAPL_TOKEN_ID ? `MOCK-AAPL token: ${process.env.MOCK_AAPL_TOKEN_ID}` : null,
-    process.env.USDC_TEST_TOKEN_ID ? `USDC-TEST token: ${process.env.USDC_TEST_TOKEN_ID}` : null,
+    ...equityLines,
+    (process.env.USDC_TOKEN_ID || process.env.USDC_TEST_TOKEN_ID)
+      ? `USDC token: ${process.env.USDC_TOKEN_ID || process.env.USDC_TEST_TOKEN_ID}`
+      : null,
     process.env.SPEND_NOTE_TOKEN_ID ? `Spend Note NFT token: ${process.env.SPEND_NOTE_TOKEN_ID}` : null,
     process.env.AUDIT_TOPIC_ID ? `HCS Audit Topic: ${process.env.AUDIT_TOPIC_ID}` : null,
     process.env.HEDERA_OPERATOR_ID ? `Treasury/Operator account: ${process.env.HEDERA_OPERATOR_ID}` : null,
   ].filter(Boolean).join('\n');
 
-  return `You are Folio's AI financial agent operating on Hedera Testnet. You autonomously manage collateralized lending operations.
+  return `You are Folio's AI financial agent operating on Hedera. You autonomously manage collateralized lending operations.
 
 FOLIO CONTEXT:
 Folio lets users borrow against their stock portfolio at 0% interest using zero-cost equity collars on Hedera Token Service. When a user "spends" against their shares, the system:
-1. Locks their tokenized shares (MOCK-TSLA, MOCK-AAPL) as collateral
-2. Advances USDC-TEST to the user or a recipient
+1. Locks their tokenized equity HTS shares (TSLA, AAPL, and other Trade symbols) as collateral
+2. Advances USDC to the user or a recipient
 3. Mints an NFT Spend Note as an on-chain receipt
 4. Logs the transaction to HCS for immutable audit trail
 

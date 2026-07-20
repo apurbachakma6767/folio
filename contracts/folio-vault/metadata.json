@@ -1,0 +1,186 @@
+{
+  "compiler": {
+    "version": "0.8.35+commit.47b9dedd"
+  },
+  "language": "Solidity",
+  "output": {
+    "abi": [
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "operator_",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "constructor"
+      },
+      {
+        "inputs": [],
+        "type": "error",
+        "name": "NotOperator"
+      },
+      {
+        "inputs": [],
+        "type": "error",
+        "name": "ZeroAddress"
+      },
+      {
+        "inputs": [],
+        "type": "error",
+        "name": "ZeroAmount"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "user",
+            "type": "address",
+            "indexed": true
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address",
+            "indexed": true
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256",
+            "indexed": false
+          }
+        ],
+        "type": "event",
+        "name": "Deposited",
+        "anonymous": false
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "to",
+            "type": "address",
+            "indexed": true
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address",
+            "indexed": true
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256",
+            "indexed": false
+          }
+        ],
+        "type": "event",
+        "name": "Released",
+        "anonymous": false
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function",
+        "name": "deposit"
+      },
+      {
+        "inputs": [],
+        "stateMutability": "view",
+        "type": "function",
+        "name": "operator",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ]
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "to",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "stateMutability": "nonpayable",
+        "type": "function",
+        "name": "release"
+      }
+    ],
+    "devdoc": {
+      "kind": "dev",
+      "methods": {},
+      "version": 1
+    },
+    "userdoc": {
+      "kind": "user",
+      "methods": {
+        "deposit(address,uint256)": {
+          "notice": "Pull `amount` of `token` from msg.sender (user must have approved this vault)."
+        },
+        "release(address,address,uint256)": {
+          "notice": "Operator returns collateral to `to` (trusted operator, same model as server-side Folio flows)."
+        }
+      },
+      "version": 1
+    }
+  },
+  "settings": {
+    "remappings": [
+      "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/",
+      "chainlink-brownie-contracts/=lib/chainlink-brownie-contracts/",
+      "contracts/=chainlink/contracts/",
+      "forge-std/=lib/forge-std/src/"
+    ],
+    "optimizer": {
+      "enabled": false,
+      "runs": 200
+    },
+    "metadata": {
+      "bytecodeHash": "ipfs"
+    },
+    "compilationTarget": {
+      "chainlink/contracts/FolioCollateralVault.sol": "FolioCollateralVault"
+    },
+    "evmVersion": "osaka",
+    "libraries": {}
+  },
+  "sources": {
+    "chainlink/contracts/FolioCollateralVault.sol": {
+      "keccak256": "0xdc7780d8b6a217f824920cc9670d4442db597442fdd7ebd27a06cdcf63ab28ec",
+      "urls": [
+        "bzz-raw://1a86ed418f81d27a3f322e90792f20a975e8a9e05b09595bf715dea16623378f",
+        "dweb:/ipfs/QmbRXRJcZnRKEcKaHe7JPUHrUjwne3KeCTjtfsPezGFPeF"
+      ],
+      "license": "MIT"
+    }
+  },
+  "version": 1
+}

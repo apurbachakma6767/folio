@@ -39,7 +39,11 @@ export async function POST(req: NextRequest) {
 
     if (hederaConfigured) {
       const { prepareRepayment, getTokenBalances } = await import('@/lib/hedera');
-      const usdcTokenId = process.env.USDC_TEST_TOKEN_ID!;
+      const { getUsdcTokenId } = await import('@/lib/network');
+      const usdcTokenId = getUsdcTokenId();
+      if (!usdcTokenId) {
+        return NextResponse.json({ error: 'USDC token not configured' }, { status: 503 });
+      }
 
       // Check user has enough USDC to repay
       const balances = await getTokenBalances(user.hederaAccountId);

@@ -32,11 +32,13 @@ export async function GET(req: NextRequest) {
     const holdings = Array.from(balances.entries())
       .filter(([tokenId]) => {
         const entry = tokenMap.get(tokenId);
-        return entry && entry.type !== 'crypto'; // Crypto shown separately from user's own account
+        // Portfolio equities only (not USDC / crypto)
+        return entry && entry.type === 'stock';
       })
       .map(([tokenId, rawBalance]) => {
         const entry = tokenMap.get(tokenId)!;
-        const shares = Math.floor(rawBalance / 10 ** entry.decimals);
+        // Preserve fractional HTS balances (6 decimals)
+        const shares = rawBalance / 10 ** entry.decimals;
         return {
           symbol: entry.symbol,
           name: entry.name,
@@ -44,9 +46,10 @@ export async function GET(req: NextRequest) {
           icon: entry.symbol[0],
           gradient: holdingGradient(entry.symbol),
           provider: entry.provider,
+          type: 'stock' as const,
         };
       })
-      .filter((h) => h.shares > 0);
+      .filter((h) => h.shares > 1e-9);
 
     return NextResponse.json({ holdings, source: 'hedera' });
   } catch (error) {

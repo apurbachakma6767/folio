@@ -27,7 +27,9 @@ export interface CardResult {
   error?: string;
 }
 
-const isMockMode = process.env.LITHIC_MOCK === 'true';
+// Live Lithic only when LITHIC_MOCK=false and API key is set
+const isMockMode =
+  process.env.LITHIC_MOCK !== 'false' || !process.env.LITHIC_API_KEY?.trim();
 const apiKey = process.env.LITHIC_API_KEY || '';
 const baseUrl = process.env.LITHIC_ENV === 'production' ? LITHIC_PROD_URL : LITHIC_SANDBOX_URL;
 

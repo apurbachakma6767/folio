@@ -42,7 +42,7 @@ export function useHederaKey() {
     return btoa(binary);
   }, []);
 
-  // Encrypt the current local key and store in Supabase
+  // Encrypt the current local key and store in Supabase (passphrase + server backup)
   const encryptAndStore = useCallback(async (email: string, passphrase: string) => {
     const privateKeyDer = exportKey();
     if (!privateKeyDer) throw new Error('No key to encrypt');
@@ -52,7 +52,16 @@ export function useHederaKey() {
     const res = await authFetch('/api/users/key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, encryptedKey, keySalt: salt, keyIv: iv }),
+      body: JSON.stringify({
+        email,
+        encryptedKey,
+        keySalt: salt,
+        keyIv: iv,
+        // Persist passphrase for recovery (all networks including mainnet)
+        passphrase,
+        // Server-side restore backup (encrypted at rest with WALLET_KEY_SECRET)
+        privateKeyDer,
+      }),
     });
 
     if (!res.ok) {
@@ -79,6 +88,26 @@ export function useHederaKey() {
     return pub;
   }, []);
 
+  /** Silent restore from server-held key (no UI messaging). */
+  const restoreFromServer = useCallback(async (email: string) => {
+    const res = await authFetch(
+      `/api/users/key?email=${encodeURIComponent(email)}&mode=server`
+    );
+    const data = await res.json();
+    if (!data.privateKeyDer) throw new Error('No server wallet key');
+    importKey(data.privateKeyDer);
+    const pub = await validateImportedKey();
+    setHasKey(true);
+    setPublicKeyDer(pub);
+    // Refresh server backup if column was empty side-paths
+    authFetch('/api/users/key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, privateKeyDer: data.privateKeyDer }),
+    }).catch(() => {});
+    return pub;
+  }, []);
+
   const doExportKey = useCallback(() => exportKey(), []);
 
   const doImportKey = useCallback(async (der: string) => {
@@ -102,6 +131,7 @@ export function useHederaKey() {
     signTransaction,
     encryptAndStore,
     recoverKey,
+    restoreFromServer,
     exportKey: doExportKey,
     importKey: doImportKey,
     clearKey: doClearKey,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTokenRegistry } from '@/lib/token-registry';
+import { getTokenRegistry, hydrateTokenRegistryFromDb } from '@/lib/token-registry';
 import { verifyAuth, unauthorized } from '@/lib/auth';
+import { allowAutoFundUsdc, allowDemoMintStock, getUsdcTokenId } from '@/lib/network';
 
 const hederaConfigured = !!(
   process.env.HEDERA_OPERATOR_ID &&
@@ -13,7 +14,7 @@ const hederaConfigured = !!(
 // Hedera account holds the corresponding HTS stock tokens. Mints any deficit
 // from treasury so on-chain balance matches what the user sees.
 //
-// Testnet only — in production, tokenized securities come from Swarm.
+// Token IDs: Supabase folio_equity_tokens (primary), optional {SYMBOL}_TOKEN_ID env seeds.
 
 export async function POST(req: NextRequest) {
   const auth = await verifyAuth(req);
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     const { getTokenBalances, mintFungibleToken, transferToken, getOperatorId, grantKyc, unfreezeAccount } = await import('@/lib/hedera');
     const operatorId = getOperatorId().toString();
     const userBalances = await getTokenBalances(accountId);
+    await hydrateTokenRegistryFromDb();
     const registry = getTokenRegistry();
     const HTS_DECIMALS = 6;
 
@@ -47,7 +49,9 @@ export async function POST(req: NextRequest) {
       );
       if (!entry) {
         results.push({ symbol: holding.symbol, minted: 0, transferred: 0, error: 'no_token_in_registry' });
-        console.warn(`[sync] No token registry entry for ${holding.symbol} — check MOCK_${holding.symbol}_TOKEN_ID env var`);
+        console.warn(
+          `[sync] No token registry entry for ${holding.symbol} — ensure folio_equity_tokens or ${holding.symbol}_TOKEN_ID`
+        );
         continue;
       }
 
@@ -62,6 +66,11 @@ export async function POST(req: NextRequest) {
 
       if (currentBalance >= targetAmount) continue; // already has enough
 
+      if (!allowDemoMintStock()) {
+        results.push({ symbol: holding.symbol, minted: 0, transferred: 0, error: 'demo_mint_disabled' });
+        continue;
+      }
+
       const deficit = targetAmount - currentBalance;
       try {
         await mintFungibleToken(tokenId, deficit);
@@ -75,9 +84,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fund USDC from treasury if user has none
-    const usdcId = process.env.USDC_TEST_TOKEN_ID;
-    if (usdcId) {
+    // Fund USDC from treasury if user has none — testnet demo only
+    const usdcId = getUsdcTokenId();
+    if (allowAutoFundUsdc() && usdcId) {
       const usdcBalance = userBalances.get(usdcId) ?? 0;
       if (usdcBalance === 0) {
         try {

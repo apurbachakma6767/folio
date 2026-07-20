@@ -14,7 +14,7 @@ export type SpendMode = 'send' | 'card';
 
 interface SpendFlowProps {
   mode: SpendMode;
-  selectedHolding: Holding;
+  selectedHolding?: Holding | null;
   holdings: Holding[];
   prices: Record<string, PriceData>;
   currentUserAccountId?: string;
@@ -30,8 +30,18 @@ export default function SpendFlow({ mode, selectedHolding, holdings, prices, cur
   const [sendError, setSendError] = useState('');
   const { signTransaction } = useHederaKey();
   const [showDetails, setShowDetails] = useState(false);
-  const [currentHolding, setCurrentHolding] = useState<Holding>(selectedHolding);
+  const [currentHolding, setCurrentHolding] = useState<Holding | null>(
+    selectedHolding ?? holdings.find((h) => h.shares > 0) ?? holdings[0] ?? null
+  );
   const [showPicker, setShowPicker] = useState(false);
+
+  // Keep selection in sync when parent holdings load after mount (empty → first stock)
+  useEffect(() => {
+    if (currentHolding) return;
+    const next =
+      selectedHolding ?? holdings.find((h) => h.shares > 0) ?? holdings[0] ?? null;
+    if (next) setCurrentHolding(next);
+  }, [selectedHolding, holdings, currentHolding]);
   const [recipientInput, setRecipientInput] = useState('');
   const [recipientAccountId, setRecipientAccountId] = useState('');
   const [recipientName, setRecipientName] = useState('');
@@ -96,7 +106,8 @@ export default function SpendFlow({ mode, selectedHolding, holdings, prices, cur
   // Debounced AI collar optimization — fetches all 3 durations in one call
   useEffect(() => {
     const val = parseFloat(amount) || 0;
-    if (!val || !currentHolding.symbol) {
+    const symbol = currentHolding?.symbol;
+    if (!val || !symbol) {
       setAiResults(null);
       return;
     }
@@ -109,7 +120,7 @@ export default function SpendFlow({ mode, selectedHolding, holdings, prices, cur
         const res = await authFetch('/api/ai/optimize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol: currentHolding.symbol, amount: val }),
+          body: JSON.stringify({ symbol, amount: val }),
           signal: controller.signal,
         });
         if (res.ok) {
@@ -134,7 +145,7 @@ export default function SpendFlow({ mode, selectedHolding, holdings, prices, cur
       controller.abort();
       setAiLoading(false);
     };
-  }, [amount, currentHolding.symbol]);
+  }, [amount, currentHolding?.symbol]);
 
   // Calculate locked shares per symbol from active notes (already in escrow)
   const lockedBySymbol = activeNotes.reduce<Record<string, number>>((acc, note) => {
@@ -146,6 +157,25 @@ export default function SpendFlow({ mode, selectedHolding, holdings, prices, cur
     const available = h.shares - (lockedBySymbol[h.symbol] || 0);
     return available > 0;
   });
+
+  // Empty portfolio (mainnet: no free stock) — guide user to Trade
+  if (!currentHolding) {
+    return (
+      <div className="space-y-6">
+        <button onClick={onBack} className="text-[13px]" style={{ color: 'var(--text-tertiary)' }}>
+          ← Back
+        </button>
+        <div className="card p-8 text-center space-y-3">
+          <div className="text-[18px] font-bold" style={{ color: 'var(--text-primary)' }}>
+            No stock to spend against
+          </div>
+          <div className="text-[13px] leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
+            Buy equity on Trade first, then come back to borrow against your shares.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const { symbol, name: stockName, shares: totalShares, icon: stockIcon, gradient: stockGradient } = currentHolding;
   const lockedShares = lockedBySymbol[symbol] || 0;

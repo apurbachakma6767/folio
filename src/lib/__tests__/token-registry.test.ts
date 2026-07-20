@@ -8,6 +8,13 @@ describe('token-registry', () => {
   beforeEach(() => {
     jest.resetModules();
     process.env = { ...originalEnv };
+    // Clear all equity env seeds so tests are isolated
+    for (const sym of ['TSLA', 'AAPL', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'AMD', 'INTC', 'CRM', 'COIN']) {
+      delete process.env[`${sym}_TOKEN_ID`];
+      delete process.env[`MOCK_${sym}_TOKEN_ID`];
+    }
+    delete process.env.USDC_TEST_TOKEN_ID;
+    delete process.env.USDC_TOKEN_ID;
   });
 
   afterAll(() => {
@@ -20,18 +27,12 @@ describe('token-registry', () => {
 
   describe('getTokenRegistry', () => {
     it('returns empty array when no token env vars are set', () => {
-      delete process.env.MOCK_TSLA_TOKEN_ID;
-      delete process.env.MOCK_AAPL_TOKEN_ID;
-      delete process.env.USDC_TEST_TOKEN_ID;
-
       const { getTokenRegistry } = loadRegistry();
       expect(getTokenRegistry()).toEqual([]);
     });
 
-    it('includes TSLA when MOCK_TSLA_TOKEN_ID is set', () => {
-      process.env.MOCK_TSLA_TOKEN_ID = '0.0.11111';
-      delete process.env.MOCK_AAPL_TOKEN_ID;
-      delete process.env.USDC_TEST_TOKEN_ID;
+    it('includes TSLA when TSLA_TOKEN_ID is set', () => {
+      process.env.TSLA_TOKEN_ID = '0.0.11111';
 
       const { getTokenRegistry } = loadRegistry();
       const registry = getTokenRegistry();
@@ -42,12 +43,31 @@ describe('token-registry', () => {
         tokenId: '0.0.11111',
         decimals: 6,
         type: 'stock',
+        provider: 'folio',
       });
     });
 
-    it('includes all tokens when all env vars are set', () => {
+    it('still accepts legacy MOCK_*_TOKEN_ID env keys', () => {
       process.env.MOCK_TSLA_TOKEN_ID = '0.0.11111';
-      process.env.MOCK_AAPL_TOKEN_ID = '0.0.22222';
+
+      const { getTokenRegistry } = loadRegistry();
+      expect(getTokenRegistry()[0]).toMatchObject({
+        symbol: 'TSLA',
+        tokenId: '0.0.11111',
+      });
+    });
+
+    it('prefers clean TSLA_TOKEN_ID over legacy MOCK_TSLA_TOKEN_ID', () => {
+      process.env.TSLA_TOKEN_ID = '0.0.11111';
+      process.env.MOCK_TSLA_TOKEN_ID = '0.0.99999';
+
+      const { getTokenIdForSymbol } = loadRegistry();
+      expect(getTokenIdForSymbol('TSLA')).toBe('0.0.11111');
+    });
+
+    it('includes all tokens when all env vars are set', () => {
+      process.env.TSLA_TOKEN_ID = '0.0.11111';
+      process.env.AAPL_TOKEN_ID = '0.0.22222';
       process.env.USDC_TEST_TOKEN_ID = '0.0.33333';
 
       const { getTokenRegistry } = loadRegistry();
@@ -70,7 +90,7 @@ describe('token-registry', () => {
     });
 
     it('marks stock tokens as stock type', () => {
-      process.env.MOCK_TSLA_TOKEN_ID = '0.0.11111';
+      process.env.TSLA_TOKEN_ID = '0.0.11111';
 
       const { getTokenRegistry } = loadRegistry();
       const tsla = getTokenRegistry().find((t: { symbol: string }) => t.symbol === 'TSLA');
@@ -81,8 +101,8 @@ describe('token-registry', () => {
 
   describe('getTokenBySymbol', () => {
     beforeEach(() => {
-      process.env.MOCK_TSLA_TOKEN_ID = '0.0.11111';
-      process.env.MOCK_AAPL_TOKEN_ID = '0.0.22222';
+      process.env.TSLA_TOKEN_ID = '0.0.11111';
+      process.env.AAPL_TOKEN_ID = '0.0.22222';
       process.env.USDC_TEST_TOKEN_ID = '0.0.33333';
     });
 
@@ -100,13 +120,13 @@ describe('token-registry', () => {
 
     it('returns undefined for unknown symbol', () => {
       const { getTokenBySymbol } = loadRegistry();
-      expect(getTokenBySymbol('NVDA')).toBeUndefined();
+      expect(getTokenBySymbol('GME')).toBeUndefined();
     });
   });
 
   describe('getTokenById', () => {
     beforeEach(() => {
-      process.env.MOCK_TSLA_TOKEN_ID = '0.0.11111';
+      process.env.TSLA_TOKEN_ID = '0.0.11111';
     });
 
     it('finds token by HTS token ID', () => {
@@ -122,7 +142,7 @@ describe('token-registry', () => {
 
   describe('getTokenIdForSymbol', () => {
     beforeEach(() => {
-      process.env.MOCK_TSLA_TOKEN_ID = '0.0.11111';
+      process.env.TSLA_TOKEN_ID = '0.0.11111';
     });
 
     it('returns token ID string for known symbol', () => {

@@ -29,6 +29,23 @@ export interface AuthError {
   error: string;
 }
 
+/**
+ * Dev-only auth for scripts / local E2E.
+ * Header: Authorization: Bearer folio-dev:<email>
+ * Requires FOLIO_ALLOW_DEV_AUTH=true and non-production.
+ */
+function tryDevAuth(token: string): AuthResult | null {
+  if (process.env.NODE_ENV === 'production') return null;
+  if (!['1', 'true', 'yes'].includes((process.env.FOLIO_ALLOW_DEV_AUTH || '').toLowerCase())) {
+    return null;
+  }
+  if (!token.startsWith('folio-dev:')) return null;
+  const email = token.slice('folio-dev:'.length).trim().toLowerCase();
+  if (!email || !email.includes('@')) return null;
+  console.warn(`[auth] Dev auth as ${email} (FOLIO_ALLOW_DEV_AUTH)`);
+  return { authenticated: true, email, sub: email };
+}
+
 export async function verifyAuth(req: NextRequest): Promise<AuthResult | AuthError> {
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -36,6 +53,36 @@ export async function verifyAuth(req: NextRequest): Promise<AuthResult | AuthErr
   }
 
   const token = authHeader.slice(7);
+
+  const dev = tryDevAuth(token);
+  if (dev) return dev;
+
+  // Unsigned demo JWT (header.payload.) — development only when JWKS unavailable
+  // or when explicitly allowed for local E2E against Supabase test users.
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    ['1', 'true', 'yes'].includes((process.env.FOLIO_ALLOW_DEV_AUTH || '').toLowerCase())
+  ) {
+    try {
+      const parts = token.split('.');
+      if (parts.length >= 2) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
+          email?: string;
+          sub?: string;
+        };
+        if (payload.email) {
+          console.warn('[auth] Dev mode: accepting unsigned JWT email claim');
+          return {
+            authenticated: true,
+            email: payload.email,
+            sub: payload.sub || payload.email,
+          };
+        }
+      }
+    } catch {
+      /* fall through to JWKS */
+    }
+  }
 
   const keySet = getJWKS();
   if (!keySet) {

@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTokenRegistry } from '@/lib/token-registry';
 import { DEMO_HOLDINGS } from '@/lib/types';
+import { isProduction } from '@/lib/network';
 
 // GET /api/debug/provision?accountId=0.0.XXX
 // Diagnoses and fixes token provisioning for a specific account.
-// Returns detailed step-by-step results showing exactly what fails.
-// No auth required — testnet diagnostic only. Remove before production.
+// Testnet diagnostic only — disabled in production/mainnet.
 
 export async function GET(req: NextRequest) {
+  if (isProduction()) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
 
   const accountId = req.nextUrl.searchParams.get('accountId');
   if (!accountId) {
@@ -101,7 +104,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Step 4: USDC check
-    const usdcId = process.env.USDC_TEST_TOKEN_ID;
+    const { getUsdcTokenId } = await import('@/lib/network');
+    const usdcId = getUsdcTokenId();
     if (usdcId) {
       const usdcBalance = userBalances.get(usdcId) ?? 0;
       steps.push({ step: 'usdc:balance', status: 'ok', detail: `${usdcBalance}` });

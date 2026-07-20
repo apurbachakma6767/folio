@@ -23,7 +23,7 @@ Official references:
    Create a testnet account on the Hedera Portal. Put **Account ID** and **private key (DER)** into `HEDERA_OPERATOR_ID` and `HEDERA_OPERATOR_KEY`.
 
 4. **Create tokens and audit topic**  
-   Run `npm run setup`. Copy the printed `MOCK_*`, `USDC_TEST_TOKEN_ID`, `SPEND_NOTE_TOKEN_ID`, and `AUDIT_TOPIC_ID` into `.env.local`.
+   Run `npm run setup` then `npm run ensure:equities`. Copy printed `{SYMBOL}_TOKEN_ID`, `USDC_TEST_TOKEN_ID`, `SPEND_NOTE_TOKEN_ID`, and `AUDIT_TOPIC_ID` into `.env.local` (equity IDs also live in `folio_equity_tokens`).
 
 5. **Optional services** (only if you use those features)  
    Fill Dynamic, Supabase, Pinata, Plaid, Lithic, etc., as in `.env.example`.
@@ -62,12 +62,12 @@ npm run test:contracts
    - `FOLIO_VAULT_CONTRACT_ID` — Hedera `0.0.x`
    - `FOLIO_VAULT_EVM_ADDRESS` — `0x…` (for explorers / debugging)
 
-4. **Let the vault hold MOCK stocks**  
+4. **Let the vault hold equity HTS tokens**  
    Stock tokens from `setup` use KYC + freeze. Run:
    ```bash
    npm run hedera:associate-vault
    ```  
-   This associates MOCK-TSLA and MOCK-AAPL with the vault, grants KYC, and unfreezes the vault for those tokens (same idea as user onboarding in `register/complete`).
+   This associates all Trade equity tokens with the vault, grants KYC, and unfreezes the vault for those tokens (same idea as user onboarding in `register/complete`).
 
 5. **Hashsan**  
    Open [Hashscan](https://hashscan.io/testnet), paste your contract id, and confirm the contract exists.

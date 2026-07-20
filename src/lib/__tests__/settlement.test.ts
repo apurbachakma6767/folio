@@ -9,7 +9,7 @@ import type { SpendNote } from '../spend-notes';
 function makeNote(overrides: Partial<SpendNote> = {}): SpendNote {
   return {
     id: 1,
-    symbol: 'MOCK-TSLA',
+    symbol: 'TSLA',
     serial: 1,
     recipient: '0.0.12345',
     recipientName: 'Test User',

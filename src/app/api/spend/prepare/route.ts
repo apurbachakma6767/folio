@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import Long from 'long';
 import { calculateCollar } from '@/lib/collar';
 import { getStockPrice } from '@/lib/price';
-import { getTokenIdForSymbol } from '@/lib/token-registry';
+import { getTokenIdForSymbol, hydrateTokenRegistryFromDb } from '@/lib/token-registry';
 import { verifyAuth, unauthorized } from '@/lib/auth';
+import { assertSpendAllowed, assertVaultRequirement } from '@/lib/spend-guards';
 
 const hederaConfigured = !!(
   process.env.HEDERA_OPERATOR_ID &&
@@ -29,6 +30,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'userAccountId required' }, { status: 400 });
     }
 
+    const guard = await assertSpendAllowed(amount, userAccountId);
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
+
     const priceData = await getStockPrice(symbol);
     const collar = calculateCollar(amount, priceData.price, durationMonths);
 
@@ -38,6 +44,7 @@ export async function POST(req: NextRequest) {
     let needsAllowanceSignature = false;
     let needsVaultDepositSignature = false;
 
+    await hydrateTokenRegistryFromDb();
     const stockTokenId = getTokenIdForSymbol(symbol);
     if (hederaConfigured && stockTokenId) {
       const {
@@ -49,6 +56,11 @@ export async function POST(req: NextRequest) {
         prepareTokenAllowanceForVault,
         prepareVaultDeposit,
       } = await import('@/lib/hedera');
+
+      const vaultOk = assertVaultRequirement(isFolioVaultConfigured());
+      if (!vaultOk.ok) {
+        return NextResponse.json({ error: vaultOk.error }, { status: vaultOk.status });
+      }
 
       // Pre-flight: check if user actually has enough stock tokens to collateralize
       const userBalances = await getTokenBalances(userAccountId);
@@ -63,16 +75,21 @@ export async function POST(req: NextRequest) {
 
       if (isFolioVaultConfigured()) {
         const vaultId = getFolioVaultContractId();
+        const { getOperatorId } = await import('@/lib/hedera');
         const need = Long.fromNumber(collar.sharesHts);
-        const current = await getFungibleTokenAllowance(userAccountId, vaultId, stockTokenId);
+        // Allowance is to operator (spender) for gasless approved pull into vault
+        const current = await getFungibleTokenAllowance(
+          userAccountId,
+          getOperatorId().toString(),
+          stockTokenId
+        );
+        // Gasless: user only signs allowance; operator pulls into vault after
         if (current.compare(need) < 0) {
           const txb = await prepareTokenAllowanceForVault(stockTokenId, userAccountId, vaultId, need);
           allowanceTxBytes = Buffer.from(txb).toString('base64');
           needsAllowanceSignature = true;
         }
-        const dep = await prepareVaultDeposit(vaultId, stockTokenId, userAccountId, collar.sharesHts);
-        vaultDepositTxBytes = Buffer.from(dep).toString('base64');
-        needsVaultDepositSignature = true;
+        needsVaultDepositSignature = false;
       } else {
         const txBytes = await prepareCollateralLock(stockTokenId, userAccountId, collar.sharesHts);
         collateralLockTxBytes = Buffer.from(txBytes).toString('base64');
@@ -80,7 +97,7 @@ export async function POST(req: NextRequest) {
     }
 
     const needsSignature = Boolean(
-      collateralLockTxBytes || needsVaultDepositSignature
+      collateralLockTxBytes || needsAllowanceSignature
     );
 
     return NextResponse.json({

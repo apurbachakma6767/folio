@@ -36,7 +36,7 @@ export async function executeRepayment(
       executeVaultRelease,
     } = await import('./hedera');
     const operatorId = getOperatorId().toString();
-    const stockTokenId = getTokenIdForSymbol(note.symbol.replace('MOCK-', ''));
+    const stockTokenId = getTokenIdForSymbol(note.symbol.replace(/^MOCK-/, ''));
 
     // Return collateral shares FIRST, before taking USDC payment
     // This ordering protects the user: if share return fails, USDC is not taken
@@ -55,7 +55,7 @@ export async function executeRepayment(
     }
 
     // Update Supabase
-    const priceData = await getStockPrice(note.symbol.replace('MOCK-', ''));
+    const priceData = await getStockPrice(note.symbol.replace(/^MOCK-/, ''));
     await settleNote(noteId, {
       status: 'repaid',
       settlementTxId: `repay-${Date.now()}`,
@@ -106,7 +106,7 @@ export async function executeExpiredSettlement(
   }
 
   // Get current stock price for settlement math
-  const symbol = note.symbol.replace('MOCK-', '');
+  const symbol = note.symbol.replace(/^MOCK-/, '');
   const priceData = await getStockPrice(symbol);
   const result = calculateSettlement({ note, currentPrice: priceData.price });
 

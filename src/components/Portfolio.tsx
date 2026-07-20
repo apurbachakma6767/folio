@@ -37,10 +37,10 @@ export default function Portfolio({
   cryptoHoldings,
   prices,
   plaidStatus,
-  isPlaidAvailable,
-  isDemo,
+  isPlaidAvailable: _isPlaidAvailable,
+  isDemo: _isDemo,
   activeNotes,
-  onConnectBrokerage,
+  onConnectBrokerage: _onConnectBrokerage,
   onSpendFromHolding,
   onSpend,
   onViewNotes,
@@ -111,50 +111,140 @@ export default function Portfolio({
   const isPositive = totalChange >= 0;
   const hasHoldings = visibleHoldings.length > 0;
 
-  // Check if any price is from fallback (not live)
-  const sources = Object.values(prices).map((p) => p.source);
-  const pricesLoaded = sources.length > 0;
-  const isLive = pricesLoaded && sources.every((s) => s === 'live' || s === 'cached');
+  // Live = we have real market data (Yahoo "live", Chainlink, or fresh cache).
+  // Only hardcoded "fallback" is offline.
+  const priceEntries = Object.values(prices).filter((p) => p.price > 0);
+  const pricesLoaded = priceEntries.length > 0;
+  const isLive =
+    pricesLoaded &&
+    priceEntries.some((p) => p.source === 'live' || p.source === 'chainlink' || p.source === 'cached') &&
+    !priceEntries.every((p) => p.source === 'fallback');
 
   return (
-    <div className="space-y-10">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 text-xs font-medium mb-3 uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>
-          <span>Total Portfolio</span>
+    <div className="space-y-7">
+      {/* Hero glass panel */}
+      <div className="glass-hero p-6 md:p-8">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="page-eyebrow" style={{ marginBottom: 0 }}>
+            Total portfolio
+          </span>
           {pricesLoaded && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+            <span
+              className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full"
               style={{
                 color: isLive ? 'var(--positive)' : 'var(--negative)',
-                background: isLive ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-              }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: isLive ? 'var(--positive)' : 'var(--negative)' }} />
+                background: isLive ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.12)',
+                border: isLive
+                  ? '1px solid rgba(16,185,129,0.28)'
+                  : '1px solid rgba(239,68,68,0.22)',
+              }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{
+                  background: isLive ? 'var(--positive)' : 'var(--negative)',
+                  boxShadow: isLive ? '0 0 8px rgba(16,185,129,0.9)' : undefined,
+                }}
+              />
               {isLive ? 'LIVE' : 'OFFLINE'}
             </span>
           )}
         </div>
-        <div className="text-[44px] font-bold tracking-tight leading-none" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          ${animatedTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        <div
+          className="text-[42px] md:text-[48px] font-bold tracking-tight leading-none"
+          style={{ fontVariantNumeric: 'tabular-nums' }}
+        >
+          $
+          {animatedTotal.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </div>
-        <div className="flex items-center gap-2 mt-4">
-          <span className="text-sm font-semibold px-2.5 py-1 rounded-lg"
+        <div className="flex flex-wrap items-center gap-2.5 mt-4">
+          <span
+            className="text-[13px] font-semibold px-2.5 py-1 rounded-lg"
             style={{
               color: isPositive ? 'var(--positive)' : 'var(--negative)',
-              background: isPositive ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-            }}>
-            {isPositive ? '+' : ''}{totalChange.toFixed(2)}
+              background: isPositive ? 'rgba(16,185,129,0.14)' : 'rgba(239,68,68,0.14)',
+              border: isPositive
+                ? '1px solid rgba(16,185,129,0.22)'
+                : '1px solid rgba(239,68,68,0.2)',
+            }}
+          >
+            {isPositive ? '+' : ''}
+            {totalChange.toFixed(2)}
+            <span className="font-medium opacity-70 ml-1">today</span>
           </span>
-          <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>today</span>
+        </div>
+
+        {/* Mini stats row */}
+        <div className="grid grid-cols-2 gap-2.5 mt-6">
+          <div className="glass-inset px-3.5 py-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-tertiary)' }}>
+              Available
+            </div>
+            <div
+              className="text-[17px] font-bold tabular-nums"
+              style={{ color: 'var(--accent)' }}
+            >
+              $
+              {animatedSpendable.toLocaleString('en-US', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0,
+              })}
+            </div>
+          </div>
+          <div className="glass-inset px-3.5 py-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--text-tertiary)' }}>
+              Locked
+            </div>
+            <div
+              className="text-[17px] font-bold tabular-nums"
+              style={{ color: lockedValue > 0 ? '#F59E0B' : 'var(--text-secondary)' }}
+            >
+              $
+              {lockedValue.toLocaleString('en-US', {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0,
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions — glass tiles */}
       <div className="flex gap-3">
-        <button onClick={onSpend} disabled={!hasHoldings} className="btn-primary flex-1 py-4 text-[15px]">
-          Send Payment
+        <button
+          type="button"
+          onClick={onSpend}
+          disabled={!hasHoldings}
+          className="action-tile"
+        >
+          <span className="action-tile-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="12" y1="1" x2="12" y2="23" />
+              <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
+            </svg>
+          </span>
+          <span className="text-[13px] font-semibold">Send</span>
         </button>
-        <button onClick={onViewNotes} className="btn-secondary flex-1 py-4 text-[15px]">
-          Transactions
+        <button type="button" onClick={onViewNotes} className="action-tile">
+          <span className="action-tile-icon" style={{ background: 'rgba(99,102,241,0.14)', color: '#A5B4FC', borderColor: 'rgba(99,102,241,0.25)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </span>
+          <span className="text-[13px] font-semibold">Activity</span>
+        </button>
+        <button type="button" onClick={onViewCards} className="action-tile">
+          <span className="action-tile-icon" style={{ background: 'rgba(139,92,246,0.14)', color: '#C4B5FD', borderColor: 'rgba(139,92,246,0.25)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="1" y="4" width="22" height="16" rx="2" />
+              <line x1="1" y1="10" x2="23" y2="10" />
+            </svg>
+          </span>
+          <span className="text-[13px] font-semibold">Cards</span>
         </button>
       </div>
 
@@ -287,18 +377,10 @@ export default function Portfolio({
         </div>
       )}
 
-      {/* Connect Brokerage or Holdings */}
+      {/* Holdings */}
       <div>
         <div className="flex items-center gap-2 mb-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>
-            Holdings
-          </div>
-          {isDemo && (
-            <div className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-              style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--accent)' }}>
-              HTS Tokenized
-            </div>
-          )}
+          <div className="section-label">Holdings</div>
         </div>
 
         {plaidStatus === 'loading' ? (
@@ -332,29 +414,46 @@ export default function Portfolio({
                 <button
                   key={h.symbol}
                   onClick={() => onSpendFromHolding(h)}
-                  className="w-full card flex items-center gap-4 p-5 text-left transition-all"
+                  className="w-full card flex items-center gap-4 p-4 md:p-5 text-left"
                   style={{ cursor: 'pointer' }}
                 >
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold text-white"
-                    style={{ background: h.gradient }}>
+                  <div
+                    className="w-11 h-11 rounded-2xl flex items-center justify-center text-sm font-bold text-white shrink-0"
+                    style={{
+                      background: h.gradient,
+                      boxShadow: '0 4px 14px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.2)',
+                    }}
+                  >
                     {h.icon}
                   </div>
-                  <div className="flex-1">
-                    <div className="text-[15px] font-semibold">{h.name}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-semibold truncate">{h.name}</div>
                     <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
                       {locked > 0 ? (
-                        <>{formatShares(available)} available · <span style={{ color: '#F59E0B' }}>{formatShares(locked)} locked</span>{isDemo && ' · HTS'}</>
+                        <>
+                          {formatShares(available)} free ·{' '}
+                          <span style={{ color: '#F59E0B' }}>{formatShares(locked)} locked</span>
+                        </>
                       ) : (
-                        <>{h.shares} share{h.shares !== 1 ? 's' : ''}{isDemo && ' · HTS'}</>
+                        <>
+                          {h.shares} share{h.shares !== 1 ? 's' : ''}
+                        </>
                       )}
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <div className="text-[15px] font-semibold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
-                    <div className="text-xs font-medium mt-1" style={{ color: isUp ? 'var(--positive)' : 'var(--negative)' }}>
-                      {isUp ? '+' : ''}{change.toFixed(2)}%
+                    <div
+                      className="text-[11px] font-semibold mt-1 px-1.5 py-0.5 rounded-md inline-block"
+                      style={{
+                        color: isUp ? 'var(--positive)' : 'var(--negative)',
+                        background: isUp ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                      }}
+                    >
+                      {isUp ? '+' : ''}
+                      {change.toFixed(2)}%
                     </div>
                   </div>
                 </button>
@@ -362,28 +461,7 @@ export default function Portfolio({
             })}
 
             {/* Connect Brokerage */}
-            {plaidStatus === 'idle' && isPlaidAvailable && isDemo && (
-              <button
-                onClick={onConnectBrokerage}
-                className="w-full card p-5 text-left cursor-pointer transition-all"
-                style={{ border: '1.5px dashed rgba(255,255,255,0.12)' }}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center"
-                    style={{ background: 'var(--accent-muted)' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round">
-                      <path d="M12 5v14M5 12h14" />
-                    </svg>
-                  </div>
-                  <div>
-                    <div className="text-[15px] font-semibold">Connect Brokerage</div>
-                    <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                      Link your account to see real positions
-                    </div>
-                  </div>
-                </div>
-              </button>
-            )}
+
           </div>
         )}
       </div>
@@ -481,41 +559,32 @@ export default function Portfolio({
         </div>
       )}
 
-      {/* Available to Spend */}
-      {hasHoldings && (
-        urgentNote ? (
-          <div className="card px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>
-                Available to Spend
-              </div>
-              <div className="text-[18px] font-bold" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
-                ${animatedSpendable.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
-            {Object.keys(lockedBySymbol).length > 0 && (
-              <div className="text-[11px] mt-2" style={{ color: '#F59E0B' }}>
-                {Object.entries(lockedBySymbol).map(([sym, shares]) => (
-                  <span key={sym}>{formatShares(shares)} {sym} locked as collateral{' '}</span>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="card p-6 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-[0.04]"
-              style={{ background: 'var(--accent)', filter: 'blur(40px)', transform: 'translate(30%, -30%)' }} />
-            <div className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--text-tertiary)' }}>
-              Available to Spend
-            </div>
-            <div className="text-[30px] font-bold" style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
-              ${animatedSpendable.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[13px] mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Spend directly from your portfolio
+      {/* Available to Spend — only when not already in hero + has outstanding advance nuance */}
+      {hasHoldings && urgentNote && (
+        <div className="card px-5 py-4">
+          <div className="flex items-center justify-between">
+            <div className="section-label">Available to spend</div>
+            <div
+              className="text-[18px] font-bold"
+              style={{ color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}
+            >
+              $
+              {animatedSpendable.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </div>
           </div>
-        )
+          {Object.keys(lockedBySymbol).length > 0 && (
+            <div className="text-[11px] mt-2" style={{ color: '#F59E0B' }}>
+              {Object.entries(lockedBySymbol).map(([sym, shares]) => (
+                <span key={sym}>
+                  {formatShares(shares)} {sym} locked as collateral{' '}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

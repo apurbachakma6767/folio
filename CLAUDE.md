@@ -1,5 +1,9 @@
 # Folio — Prime Broker in Your Pocket
 
+## Project knowledge
+Before mainnet work or debugging vault/trade/spend, read **docs/KNOWLEDGE.md**
+(architecture, env, testnet inventory, gotchas, mainnet process).
+
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.

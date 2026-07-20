@@ -1,30 +1,35 @@
 // Chainlink CollarOracle integration — reads collar params AND live prices from on-chain
-// Migrated to Hedera Testnet (EVM-compatible via HashIO)
-// The CRE workflow writes collar params; on-chain reads via viem.
+// Hedera EVM via HashIO (testnet 296 / mainnet 295). CRE optional for Thrive M2.
 
 import { createPublicClient, http, parseAbi } from 'viem';
+import {
+  getHashscanBase,
+  getHederaEvmChainId,
+  getHederaNetwork,
+  getHederaRpcUrl,
+} from './network';
 
-// Hedera Testnet chain configuration
-const hederaTestnet = {
-  id: 296,
-  name: 'Hedera Testnet',
-  nativeCurrency: {
-    decimals: 8,
-    name: 'HBAR',
-    symbol: 'HBAR',
-  },
-  rpcUrls: {
-    default: {
-      http: ['https://testnet.hashio.io/api'],
+function hederaEvmChain() {
+  const id = getHederaEvmChainId();
+  const network = getHederaNetwork();
+  const rpc = getHederaRpcUrl();
+  return {
+    id,
+    name: network === 'mainnet' ? 'Hedera Mainnet' : 'Hedera Testnet',
+    nativeCurrency: {
+      decimals: 8,
+      name: 'HBAR',
+      symbol: 'HBAR',
     },
-    public: {
-      http: ['https://testnet.hashio.io/api'],
+    rpcUrls: {
+      default: { http: [rpc] },
+      public: { http: [rpc] },
     },
-  },
-  blockExplorers: {
-    default: { name: 'HashScan', url: 'https://hashscan.io/testnet' },
-  },
-} as const;
+    blockExplorers: {
+      default: { name: 'HashScan', url: getHashscanBase() },
+    },
+  } as const;
+}
 
 const COLLAR_ORACLE_ABI = parseAbi([
   'function getCollar(string symbol) external view returns (uint256 price, uint256 floor, uint256 cap, uint256 volatility, uint256 updatedAt)',
@@ -49,12 +54,11 @@ export interface ChainlinkPrice {
 }
 
 const COLLAR_ORACLE_ADDRESS = process.env.COLLAR_ORACLE_ADDRESS || '0x0000000000000000000000000000000000000000';
-const HEDERA_RPC_URL = process.env.HEDERA_TESTNET_RPC_URL || 'https://testnet.hashio.io/api';
 
 function getClient() {
   return createPublicClient({
-    chain: hederaTestnet,
-    transport: http(HEDERA_RPC_URL),
+    chain: hederaEvmChain(),
+    transport: http(getHederaRpcUrl()),
   });
 }
 
