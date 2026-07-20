@@ -132,42 +132,12 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchNotes();
-  }, [fetchNotes]);
-
-  const fetchPrices = useCallback(async () => {
-    try {
-      // Build symbols list from holdings + active note collateral
-      const symbols = holdings
-        .filter((h) => h.shares > 0)
-        .map((h) => h.symbol);
-      const noteSymbols = activeNotes.map((n) => n.symbol);
-      const tradeSymbols = TRADE_STOCKS.map((s) => s.symbol);
-      const allSymbols = [...new Set([...tradeSymbols, ...symbols, ...noteSymbols])];
-      const query = allSymbols.length > 0 ? `?symbols=${allSymbols.join(',')}` : '';
-
-      const res = await authFetch(`/api/price${query}`);
-      const data = await res.json();
-      setPrices(data);
-    } catch {
-      setPrices({
-        TSLA: { symbol: 'TSLA', price: 225, change: 0, changePercent: 0, lastUpdated: '2025-01-01T00:00:00Z', source: 'fallback' },
-        AAPL: { symbol: 'AAPL', price: 178.5, change: 0, changePercent: 0, lastUpdated: '2025-01-01T00:00:00Z', source: 'fallback' },
-      });
-    }
-  }, [holdings, activeNotes]);
-
-  useEffect(() => {
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 30000);
-    return () => clearInterval(interval);
-  }, [fetchPrices]);
-
   const fetchCryptoBalances = useCallback(async () => {
     if (!folioUser?.hederaAccountId) return;
     try {
-      const res = await authFetch(`/api/users/balances?accountId=${folioUser.hederaAccountId}`);
+      const res = await authFetch(
+        `/api/users/balances?accountId=${encodeURIComponent(folioUser.hederaAccountId)}`
+      );
       if (res.ok) {
         const data = await res.json();
         setCryptoHoldings(data.holdings || []);
@@ -175,29 +145,49 @@ export default function Home() {
     } catch { /* ignore */ }
   }, [folioUser]);
 
-  // Fetch user's on-chain token balances (USDC, stocks, etc.)
-  // On first load after registration, retry with backoff to handle sync delay
+  const fetchPrices = useCallback(async () => {
+    try {
+      // Portfolio: only price what we hold / have collared.
+      // Trade screen: include all TRADE_STOCKS (lazy — only when that tab is open).
+      const held = holdings.filter((h) => h.shares > 0).map((h) => h.symbol);
+      const noteSymbols = activeNotes.map((n) => n.symbol);
+      const tradeSymbols =
+        screen === 'trade' ? TRADE_STOCKS.map((s) => s.symbol) : [];
+      const allSymbols = [...new Set([...held, ...noteSymbols, ...tradeSymbols])];
+      // Always include TSLA as a seed so LIVE badge / empty portfolio still has a quote
+      if (allSymbols.length === 0) allSymbols.push('TSLA');
+
+      const res = await authFetch(`/api/price?symbols=${allSymbols.join(',')}`);
+      const data = await res.json();
+      if (data && !data.error) setPrices((prev) => ({ ...prev, ...data }));
+    } catch {
+      /* keep previous prices */
+    }
+  }, [holdings, activeNotes, screen]);
+
+  // Parallel bootstrap once wallet is ready (notes + USDC) — no multi-second retry loops
   useEffect(() => {
     if (!folioUser?.hederaAccountId) return;
     let cancelled = false;
+    (async () => {
+      await Promise.all([fetchNotes(), fetchCryptoBalances()]);
+      if (cancelled) return;
+    })();
+    const balInterval = setInterval(fetchCryptoBalances, 30_000);
+    const notesInterval = setInterval(fetchNotes, 45_000);
+    return () => {
+      cancelled = true;
+      clearInterval(balInterval);
+      clearInterval(notesInterval);
+    };
+  }, [folioUser?.hederaAccountId, fetchNotes, fetchCryptoBalances]);
 
-    async function initialFetch() {
-      for (let attempt = 0; attempt <= 3; attempt++) {
-        if (cancelled) return;
-        await fetchCryptoBalances();
-        // If we got holdings or exhausted retries, stop
-        if (attempt === 3) break;
-        // Wait before retrying (gives mirror node time to sync)
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-      }
-    }
-
-    initialFetch();
-    const interval = setInterval(fetchCryptoBalances, 15000);
-    return () => { cancelled = true; clearInterval(interval); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folioUser?.hederaAccountId]);
-
+  // Prices: fetch when inputs change; poll every 60s (was 30s + all 12 symbols)
+  useEffect(() => {
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 60_000);
+    return () => clearInterval(interval);
+  }, [fetchPrices]);
   const handleViewHolding = (holding: Holding) => {
     setSelectedHolding(holding);
     setScreen('stock-detail');

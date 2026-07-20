@@ -105,8 +105,9 @@ export default function Portfolio({
     return sum + h.shares * change;
   }, 0);
 
-  const animatedTotal = useAnimatedNumber(totalValue);
-  const animatedSpendable = useAnimatedNumber(spendableValue);
+  // Shorter animation so refresh feels snappy (was 800ms default)
+  const animatedTotal = useAnimatedNumber(totalValue, 350);
+  const animatedSpendable = useAnimatedNumber(spendableValue, 350);
 
   const isPositive = totalChange >= 0;
   const hasHoldings = visibleHoldings.length > 0;

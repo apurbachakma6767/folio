@@ -2,10 +2,10 @@
 
 /**
  * Portfolio holdings from Hedera HTS only.
- * Plaid is disabled for now — no link-token / holdings / exchange API calls.
+ * Plaid is disabled — no link-token / holdings / exchange API calls.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAuthToken } from '@dynamic-labs/sdk-react-core';
 import { authFetch } from '@/lib/use-auth-fetch';
 import type { Holding } from './types';
@@ -23,41 +23,52 @@ interface PlaidHookResult {
 export function usePlaidHoldings(userAccountId?: string): PlaidHookResult {
   const [status, setStatus] = useState<PlaidStatus>('loading');
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const inflight = useRef(false);
 
   const fetchHederaHoldings = useCallback(
-    async (retries = 4): Promise<Holding[] | null> => {
-      if (!userAccountId) return null;
+    async (opts?: { retries?: number }): Promise<Holding[]> => {
+      if (!userAccountId) return [];
+      const retries = opts?.retries ?? 1; // only retry network failures, not empty portfolios
+      let lastErr: unknown;
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
           const res = await authFetch(
             `/api/hedera/holdings?accountId=${encodeURIComponent(userAccountId)}`
           );
-          if (!res.ok) return null;
-          const data = await res.json();
-          if (data.holdings?.length > 0) {
-            setHoldings(data.holdings);
-            return data.holdings;
-          }
-          // Empty is valid (no free stock on mainnet)
-          if (attempt === retries) {
-            setHoldings([]);
+          if (!res.ok) {
+            lastErr = new Error(`holdings ${res.status}`);
+            if (attempt < retries) {
+              await new Promise((r) => setTimeout(r, 800));
+              continue;
+            }
             return [];
           }
-        } catch {
-          /* retry */
-        }
-        if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          const data = await res.json();
+          // Empty array is a valid result — do NOT retry/wait
+          const list: Holding[] = Array.isArray(data.holdings) ? data.holdings : [];
+          setHoldings(list);
+          return list;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < retries) {
+            await new Promise((r) => setTimeout(r, 800));
+          }
         }
       }
-      return null;
+      if (lastErr) console.warn('[holdings]', lastErr);
+      setHoldings([]);
+      return [];
     },
     [userAccountId]
   );
 
   useEffect(() => {
     const onRefresh = () => {
-      fetchHederaHoldings(2);
+      if (inflight.current) return;
+      inflight.current = true;
+      fetchHederaHoldings({ retries: 0 }).finally(() => {
+        inflight.current = false;
+      });
     };
     window.addEventListener('folio:holdings-refresh', onRefresh);
     return () => window.removeEventListener('folio:holdings-refresh', onRefresh);
@@ -67,19 +78,16 @@ export function usePlaidHoldings(userAccountId?: string): PlaidHookResult {
     let cancelled = false;
 
     async function init() {
-      if (!getAuthToken()) {
-        setStatus('idle');
-        setHoldings([]);
-        return;
-      }
-      if (!userAccountId) {
-        setStatus('idle');
-        setHoldings([]);
+      if (!getAuthToken() || !userAccountId) {
+        if (!cancelled) {
+          setStatus('idle');
+          setHoldings([]);
+        }
         return;
       }
 
       setStatus('loading');
-      await fetchHederaHoldings();
+      await fetchHederaHoldings({ retries: 1 });
       if (!cancelled) setStatus('idle');
     }
 
@@ -89,9 +97,8 @@ export function usePlaidHoldings(userAccountId?: string): PlaidHookResult {
     };
   }, [fetchHederaHoldings, userAccountId]);
 
-  // Plaid disabled — no-op
   const openLink = useCallback(() => {
-    console.info('[holdings] Plaid connect is disabled');
+    /* Plaid disabled */
   }, []);
 
   return {
@@ -99,6 +106,6 @@ export function usePlaidHoldings(userAccountId?: string): PlaidHookResult {
     holdings,
     openLink,
     isPlaidAvailable: false,
-    isDemo: true, // on-chain / Folio HTS only (not brokerage)
+    isDemo: true,
   };
 }

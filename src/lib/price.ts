@@ -81,8 +81,7 @@ export async function getStockPrice(symbol: string): Promise<PriceData> {
     return { ...priceCache[symbol], source: 'cached' };
   }
 
-  // --- Priority 1: Direct Chainlink Price Feed ---
-  // Reads from AggregatorV3Interface — works independently of CRE workflow
+  // Chainlink only when COLLAR_ORACLE_ADDRESS is set (skipped quickly on mainnet without oracle)
   try {
     const feedPrice = await getChainlinkPrice(symbol);
     if (feedPrice && feedPrice.price > 0) {
@@ -90,18 +89,20 @@ export async function getStockPrice(symbol: string): Promise<PriceData> {
       if (ageMs < FEED_STALENESS_MS) {
         recordPrice(symbol, feedPrice.price);
         const { change, changePercent } = computeChange(symbol, feedPrice.price);
-
-        // Also try to get collar data from CRE if available and fresh
         let collar: PriceData['collar'] | undefined;
         try {
           const collarData = await getChainlinkCollar(symbol);
           if (collarData) {
             const collarAgeMs = now - collarData.updatedAt.getTime();
             if (collarAgeMs < CRE_STALENESS_MS) {
-              collar = { floor: collarData.floor, cap: collarData.cap, volatility: collarData.volatility };
+              collar = {
+                floor: collarData.floor,
+                cap: collarData.cap,
+                volatility: collarData.volatility,
+              };
             }
           }
-        } catch { /* collar data is optional */ }
+        } catch { /* optional */ }
 
         const data: PriceData = {
           symbol,
@@ -114,16 +115,13 @@ export async function getStockPrice(symbol: string): Promise<PriceData> {
         };
         priceCache[symbol] = data;
         lastFetchPerSymbol[symbol] = now;
-        console.log(`[price] ${symbol}: $${feedPrice.price.toFixed(2)} (Chainlink Price Feed)`);
         return data;
       }
     }
   } catch {
-    // Price Feed unavailable, try CRE data next
+    /* Yahoo next */
   }
 
-  // --- Priority 2: Chainlink CollarOracle (CRE workflow data) ---
-  // The CRE workflow writes price + collar params every 5 min
   try {
     const collar = await getChainlinkCollar(symbol);
     if (collar && collar.price > 0) {
@@ -138,27 +136,27 @@ export async function getStockPrice(symbol: string): Promise<PriceData> {
           changePercent,
           lastUpdated: collar.updatedAt.toISOString(),
           source: 'chainlink',
-          collar: { floor: collar.floor, cap: collar.cap, volatility: collar.volatility },
+          collar: {
+            floor: collar.floor,
+            cap: collar.cap,
+            volatility: collar.volatility,
+          },
         };
         priceCache[symbol] = data;
         lastFetchPerSymbol[symbol] = now;
-        console.log(`[price] ${symbol}: $${collar.price.toFixed(2)} (Chainlink CRE oracle, floor=$${collar.floor.toFixed(2)} cap=$${collar.cap.toFixed(2)})`);
         return data;
-      } else {
-        console.warn(`[price] ${symbol}: Chainlink CRE data is ${Math.round(ageMs / 60000)}min old (stale after ${CRE_STALENESS_MS / 60000}min)`);
       }
     }
   } catch {
-    // Chainlink unavailable, fall through to Yahoo
+    /* Yahoo next */
   }
 
-  // --- Priority 3: Yahoo Finance ---
+  // Yahoo Finance (primary path when no CollarOracle)
   try {
     const yahooFinance = await import('yahoo-finance2');
     const YF = yahooFinance.default;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const yf = new (YF as any)({ suppressNotices: ['yahooSurvey'] });
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const quote: any = await yf.quote(symbol);
 
@@ -175,11 +173,17 @@ export async function getStockPrice(symbol: string): Promise<PriceData> {
     lastFetchPerSymbol[symbol] = now;
     return data;
   } catch (error) {
-    console.error(`[price] Yahoo Finance failed for ${symbol}:`, error instanceof Error ? error.message : error);
-    // Fallback to cached (stale) or hardcoded
     if (priceCache[symbol]) return { ...priceCache[symbol], source: 'cached' };
-    console.warn(`[price] Using hardcoded fallback for ${symbol} — prices are NOT live`);
-    return FALLBACK_PRICES[symbol] ?? { symbol, price: 0, change: 0, changePercent: 0, lastUpdated: '2025-01-01T00:00:00Z', source: 'fallback' };
+    return (
+      FALLBACK_PRICES[symbol] ?? {
+        symbol,
+        price: 0,
+        change: 0,
+        changePercent: 0,
+        lastUpdated: '2025-01-01T00:00:00Z',
+        source: 'fallback',
+      }
+    );
   }
 }
 

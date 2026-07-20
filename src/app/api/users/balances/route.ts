@@ -25,13 +25,29 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { getTokenBalances, transferToken, getHbarBalance } = await import('@/lib/hedera');
-    const balances = await getTokenBalances(accountId);
+    const {
+      getTokenBalances,
+      transferToken,
+      getHbarBalance,
+      getAccountBalancesMirror,
+    } = await import('@/lib/hedera');
+    const { hydrateTokenRegistryFromDb } = await import('@/lib/token-registry');
+    await hydrateTokenRegistryFromDb();
+
+    // One mirror call for tokens + HBAR when possible (avoids double consensus queries)
+    let balances: Map<string, number>;
     let hbar = 0;
-    try {
-      hbar = await getHbarBalance(accountId);
-    } catch (e) {
-      console.warn('[balances] HBAR query failed', e);
+    const mirror = await getAccountBalancesMirror(accountId);
+    if (mirror) {
+      balances = mirror.tokens;
+      hbar = mirror.hbar;
+    } else {
+      balances = await getTokenBalances(accountId);
+      try {
+        hbar = await getHbarBalance(accountId);
+      } catch (e) {
+        console.warn('[balances] HBAR query failed', e);
+      }
     }
     const registry = getTokenRegistry();
 

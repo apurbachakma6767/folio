@@ -626,10 +626,46 @@ export async function unfreezeAccount(tokenId: string, accountId: string): Promi
   await response.getReceipt(client);
 }
 
-// Get token balances for an account
+/**
+ * Token + HBAR balances via Mirror Node REST (fast, no consensus node).
+ * Falls back to AccountBalanceQuery if mirror fails.
+ */
+export async function getAccountBalancesMirror(
+  accountId: string
+): Promise<{ tokens: Map<string, number>; hbar: number } | null> {
+  try {
+    const { getMirrorNodeBase } = await import('./network');
+    const base = getMirrorNodeBase();
+    // Single account query includes HBAR + token balances
+    const res = await fetch(`${base}/api/v1/accounts/${accountId}`, {
+      // Avoid hanging the portfolio UI
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      balance?: {
+        balance?: number;
+        tokens?: { token_id: string; balance: number }[];
+      };
+    };
+    const tokens = new Map<string, number>();
+    for (const t of data.balance?.tokens ?? []) {
+      if (t.token_id) tokens.set(t.token_id, Number(t.balance) || 0);
+    }
+    const tiny = Number(data.balance?.balance ?? 0);
+    return { tokens, hbar: tiny / 100_000_000 };
+  } catch {
+    return null;
+  }
+}
+
+// Get token balances for an account (mirror-first for portfolio speed)
 export async function getTokenBalances(
   accountId: string
 ): Promise<Map<string, number>> {
+  const mirror = await getAccountBalancesMirror(accountId);
+  if (mirror) return mirror.tokens;
+
   const client = getClient();
   const balance = await new AccountBalanceQuery()
     .setAccountId(AccountId.fromString(accountId))
@@ -651,6 +687,9 @@ export async function getTokenBalances(
 
 /** HBAR balance in whole HBAR (not tinybars). */
 export async function getHbarBalance(accountId: string): Promise<number> {
+  const mirror = await getAccountBalancesMirror(accountId);
+  if (mirror) return mirror.hbar;
+
   const client = getClient();
   const balance = await new AccountBalanceQuery()
     .setAccountId(AccountId.fromString(accountId))

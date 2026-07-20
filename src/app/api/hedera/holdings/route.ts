@@ -23,6 +23,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const { getTokenBalances } = await import('@/lib/hedera');
+    const { hydrateTokenRegistryFromDb } = await import('@/lib/token-registry');
+    // Hydrate equity token IDs from DB so mainnet symbols resolve without env seeds
+    await hydrateTokenRegistryFromDb();
     const balances = await getTokenBalances(accountId);
     const registry = getTokenRegistry();
 
