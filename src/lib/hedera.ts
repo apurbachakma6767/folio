@@ -861,24 +861,27 @@ export async function submitSignedTransaction(
 
   const tx = Transaction.fromBytes(signedTxBytes);
   // Operator is fee payer for gasless txs — must co-sign after user.
-  // ECDSA + ED25519 multi-sig is valid when both keys match account/payer.
   await tx.sign(operatorKey);
 
   try {
     const response = await tx.execute(client);
-    await response.getReceipt(client);
+    const receipt = await response.getReceipt(client);
+    const status = receipt.status?.toString?.() ?? String(receipt.status);
+    if (status && status !== 'SUCCESS') {
+      throw new Error(`Transaction status ${status}`);
+    }
     return response.transactionId.toString();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes('INVALID_SIGNATURE') || msg.includes('status INVALID_SIGNATURE')) {
-      throw new Error(
-        'INVALID_SIGNATURE: wallet key does not match this Hedera account (or fee payer key). ' +
-          'Log out, unlock with your passphrase / restore from backup, then try again. ' +
-          'If the token is already associated, you can ignore this and retry the order.'
-      );
+    if (/TOKEN_ALREADY_ASSOCIATED/i.test(msg)) {
+      return 'TOKEN_ALREADY_ASSOCIATED';
     }
-    if (msg.includes('TOKEN_ALREADY_ASSOCIATED')) {
-      return 'already-associated';
+    if (/INVALID_SIGNATURE/i.test(msg)) {
+      // Do not include the word "already" — fill-order treats that as benign replay
+      throw new Error(
+        'INVALID_SIGNATURE: signing key does not match the Hedera account or fee payer. ' +
+          'Restore the correct wallet key for this account, then retry.'
+      );
     }
     throw e;
   }
