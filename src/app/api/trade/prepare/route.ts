@@ -75,13 +75,25 @@ export async function POST(req: NextRequest) {
     const equity = await ensureEquityToken(symbol);
     const stockTokenId = equity.tokenId;
 
-    // Associate user with this HTS if needed (older accounts without auto-assoc)
-    const { isTokenAssociated, prepareTokenAssociation } = await import('@/lib/hedera');
+    // Associate only when needed. New accounts use maxAutomaticTokenAssociations=100
+    // so buys (receive) can auto-associate without an explicit TokenAssociate tx.
+    const {
+      isTokenAssociated,
+      prepareTokenAssociation,
+      canAutoAssociateTokens,
+    } = await import('@/lib/hedera');
     let associateTxBytes: string | undefined;
     const associated = await isTokenAssociated(user.hederaAccountId, stockTokenId);
     if (!associated) {
-      const assocBytes = await prepareTokenAssociation(user.hederaAccountId, [stockTokenId]);
-      associateTxBytes = Buffer.from(assocBytes).toString('base64');
+      const autoOk = await canAutoAssociateTokens(user.hederaAccountId);
+      // Sell must already hold the token → association required only if missing (rare).
+      // Buy can rely on auto-association when slots remain.
+      if (!autoOk || side === 'sell') {
+        const assocBytes = await prepareTokenAssociation(user.hederaAccountId, [
+          stockTokenId,
+        ]);
+        associateTxBytes = Buffer.from(assocBytes).toString('base64');
+      }
     }
 
     if (side === 'buy') {

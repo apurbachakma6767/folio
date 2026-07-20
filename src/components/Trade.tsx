@@ -190,20 +190,33 @@ export default function Trade({
       const prep = await prepRes.json();
       if (!prepRes.ok) throw new Error(prep.error || 'Prepare failed');
 
-      // Associate new equity HTS if needed (gasless), then settlement
+      // Associate new equity HTS if needed (gasless). Non-fatal: auto-assoc accounts
+      // receive tokens on fill without explicit association.
       if (prep.needsAssociate && prep.associateTxBytes) {
-        const signedAssoc = await signTransaction(prep.associateTxBytes);
-        const assocRes = await authFetch('/api/trade/associate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ signedAssociateTxBytes: signedAssoc }),
-        });
-        if (!assocRes.ok) {
-          const err = await assocRes.json().catch(() => ({}));
-          // Non-fatal if already associated
-          if (!String(err.error || '').includes('TOKEN_ALREADY_ASSOCIATED')) {
-            console.warn('[trade] associate:', err.error);
+        try {
+          const signedAssoc = await signTransaction(prep.associateTxBytes);
+          const assocRes = await authFetch('/api/trade/associate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ signedAssociateTxBytes: signedAssoc }),
+          });
+          if (!assocRes.ok) {
+            const err = await assocRes.json().catch(() => ({}));
+            const em = String(err.error || '');
+            if (
+              !em.includes('TOKEN_ALREADY_ASSOCIATED') &&
+              !em.includes('already-associated') &&
+              !em.includes('INVALID_SIGNATURE')
+            ) {
+              console.warn('[trade] associate:', em);
+            }
+            // INVALID_SIGNATURE often means key mismatch or already associated — continue
           }
+        } catch (assocErr) {
+          console.warn(
+            '[trade] associate skipped:',
+            assocErr instanceof Error ? assocErr.message : assocErr
+          );
         }
       }
 

@@ -16,10 +16,12 @@ export async function POST(req: NextRequest) {
     const txId = await submitSignedTransaction(bytes);
     return NextResponse.json({ success: true, txId });
   } catch (error) {
-    console.error('[trade/associate]', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Associate failed' },
-      { status: 500 }
-    );
+    const msg = error instanceof Error ? error.message : 'Associate failed';
+    console.error('[trade/associate]', msg);
+    // Already associated is success for trade flow
+    if (msg.includes('TOKEN_ALREADY_ASSOCIATED') || msg.includes('already-associated')) {
+      return NextResponse.json({ success: true, txId: 'already-associated' });
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

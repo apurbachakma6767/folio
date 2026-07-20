@@ -150,37 +150,25 @@ export async function createEquityStockToken(
   return receipt.tokenId!.toString();
 }
 
-/** True if account is associated with this HTS token. */
+/** True if account is associated with this HTS token (mirror-first, reliable). */
 export async function isTokenAssociated(
   accountId: string,
   tokenId: string
 ): Promise<boolean> {
   try {
-    const client = getClient();
-    const info = await new AccountInfoQuery()
-      .setAccountId(AccountId.fromString(accountId))
-      .execute(client);
-    // SDK TokenRelationshipMap is not a standard Map; probe via any-compatible access
-    const rel = info.tokenRelationships as unknown as
-      | { get?: (k: TokenId) => unknown; _map?: Map<TokenId, unknown> }
-      | Map<TokenId, unknown>
-      | undefined;
-    if (rel) {
-      const tid = TokenId.fromString(tokenId);
-      if (typeof (rel as Map<TokenId, unknown>).get === 'function') {
-        const hit = (rel as Map<TokenId, unknown>).get(tid);
-        if (hit) return true;
-        for (const [k] of rel as Map<TokenId, unknown>) {
-          if (String(k) === tokenId) return true;
-        }
-      } else if (typeof (rel as { get?: (k: TokenId) => unknown }).get === 'function') {
-        if ((rel as { get: (k: TokenId) => unknown }).get(tid)) return true;
-      }
+    const { getMirrorNodeBase } = await import('./network');
+    const base = getMirrorNodeBase();
+    const res = await fetch(
+      `${base}/api/v1/accounts/${accountId}/tokens?token.id=${encodeURIComponent(tokenId)}&limit=1`
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { tokens?: { token_id: string }[] };
+      if ((data.tokens || []).some((t) => t.token_id === tokenId)) return true;
     }
   } catch {
     /* fall through */
   }
-  // Balance map includes associated tokens (even at 0 on some mirror paths)
+  // Balance map includes associated tokens (even at 0)
   try {
     const balances = await getTokenBalances(accountId);
     if (balances.has(tokenId)) return true;
@@ -188,6 +176,30 @@ export async function isTokenAssociated(
     /* */
   }
   return false;
+}
+
+/**
+ * True if account can auto-associate new HTS (max automatic associations with free slots).
+ * Our createAccount sets max=100 — buy/receive can skip explicit TokenAssociate.
+ */
+export async function canAutoAssociateTokens(accountId: string): Promise<boolean> {
+  try {
+    const { getMirrorNodeBase } = await import('./network');
+    const res = await fetch(`${getMirrorNodeBase()}/api/v1/accounts/${accountId}`);
+    if (!res.ok) return false;
+    const data = (await res.json()) as {
+      max_automatic_token_associations?: number;
+      balance?: { tokens?: unknown[] };
+    };
+    const max = data.max_automatic_token_associations ?? 0;
+    if (max === -1) return true; // unlimited
+    if (max <= 0) return false;
+    // Approximate used associations from balance tokens list (mirror caps page size)
+    const used = data.balance?.tokens?.length ?? 0;
+    return used < max;
+  } catch {
+    return false;
+  }
 }
 
 // Create an NFT collection (SPEND-NOTE)
@@ -716,7 +728,7 @@ export async function prepareRepayment(
   return tx.toBytes();
 }
 
-// Submit a client-signed transaction, adding operator co-signature
+// Submit a client-signed transaction, adding operator co-signature (gasless fee payer)
 export async function submitSignedTransaction(
   signedTxBytes: Uint8Array
 ): Promise<string> {
@@ -724,11 +736,28 @@ export async function submitSignedTransaction(
   const operatorKey = getOperatorKey();
 
   const tx = Transaction.fromBytes(signedTxBytes);
+  // Operator is fee payer for gasless txs — must co-sign after user.
+  // ECDSA + ED25519 multi-sig is valid when both keys match account/payer.
   await tx.sign(operatorKey);
-  const response = await tx.execute(client);
-  await response.getReceipt(client);
 
-  return response.transactionId.toString();
+  try {
+    const response = await tx.execute(client);
+    await response.getReceipt(client);
+    return response.transactionId.toString();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('INVALID_SIGNATURE') || msg.includes('status INVALID_SIGNATURE')) {
+      throw new Error(
+        'INVALID_SIGNATURE: wallet key does not match this Hedera account (or fee payer key). ' +
+          'Log out, unlock with your passphrase / restore from backup, then try again. ' +
+          'If the token is already associated, you can ignore this and retry the order.'
+      );
+    }
+    if (msg.includes('TOKEN_ALREADY_ASSOCIATED')) {
+      return 'already-associated';
+    }
+    throw e;
+  }
 }
 
 /** 40-char hex from `toSolidityAddress()` → `0x` + lower hex for ContractFunctionParameters */

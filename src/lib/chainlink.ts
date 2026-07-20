@@ -53,7 +53,16 @@ export interface ChainlinkPrice {
   source: 'chainlink-feed';
 }
 
-const COLLAR_ORACLE_ADDRESS = process.env.COLLAR_ORACLE_ADDRESS || '0x0000000000000000000000000000000000000000';
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/** CollarOracle EVM address — empty / zero means skip on-chain reads (use Yahoo). */
+function getCollarOracleAddress(): `0x${string}` | null {
+  const raw = (process.env.COLLAR_ORACLE_ADDRESS || '').trim().toLowerCase();
+  if (!raw || raw === ZERO_ADDRESS || raw === '0x0') return null;
+  const with0x = raw.startsWith('0x') ? raw : `0x${raw}`;
+  if (!/^0x[0-9a-f]{40}$/.test(with0x)) return null;
+  return with0x as `0x${string}`;
+}
 
 function getClient() {
   return createPublicClient({
@@ -67,12 +76,13 @@ function getClient() {
  * Returns null if the oracle is not configured or has no data.
  */
 export async function getChainlinkCollar(symbol: string): Promise<ChainlinkCollar | null> {
-  if (!COLLAR_ORACLE_ADDRESS) return null;
+  const oracle = getCollarOracleAddress();
+  if (!oracle) return null;
 
   try {
     const client = getClient();
     const result = await client.readContract({
-      address: COLLAR_ORACLE_ADDRESS as `0x${string}`,
+      address: oracle,
       abi: COLLAR_ORACLE_ABI,
       functionName: 'getCollar',
       args: [symbol],
@@ -93,7 +103,13 @@ export async function getChainlinkCollar(symbol: string): Promise<ChainlinkColla
       source: 'chainlink',
     };
   } catch (error) {
-    console.error(`[chainlink] Failed to read collar for ${symbol}:`, error instanceof Error ? error.message : error);
+    // Quiet fail — Yahoo/fallback handles pricing
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `[chainlink] collar ${symbol}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
     return null;
   }
 }
@@ -104,12 +120,13 @@ export async function getChainlinkCollar(symbol: string): Promise<ChainlinkColla
  * Returns null if no price feed is configured for the symbol.
  */
 export async function getChainlinkPrice(symbol: string): Promise<ChainlinkPrice | null> {
-  if (!COLLAR_ORACLE_ADDRESS) return null;
+  const oracle = getCollarOracleAddress();
+  if (!oracle) return null; // no mainnet oracle yet → skip, use Yahoo
 
   try {
     const client = getClient();
     const result = await client.readContract({
-      address: COLLAR_ORACLE_ADDRESS as `0x${string}`,
+      address: oracle,
       abi: COLLAR_ORACLE_ABI,
       functionName: 'getLatestPrice',
       args: [symbol],
@@ -125,9 +142,8 @@ export async function getChainlinkPrice(symbol: string): Promise<ChainlinkPrice 
       updatedAt: new Date(Number(updatedAt) * 1000),
       source: 'chainlink-feed',
     };
-  } catch (error) {
-    // Expected when no price feed is configured for this symbol
-    console.warn(`[chainlink] No price feed for ${symbol}:`, error instanceof Error ? error.message : error);
+  } catch {
+    // Expected when feed not configured for symbol — silent, Yahoo is next
     return null;
   }
 }
