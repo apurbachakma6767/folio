@@ -57,7 +57,8 @@ function encryptServerWalletKey(privateKeyDer: string): string {
   return Buffer.concat([iv, tag, enc]).toString('base64');
 }
 
-async function ensureColumns(sb: ReturnType<typeof createClient>): Promise<boolean> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ensureColumns(sb: any): Promise<boolean> {
   const probe = await sb.from('users').select('wallet_passphrase,server_wallet_key').limit(1);
   if (!probe.error) return true;
 

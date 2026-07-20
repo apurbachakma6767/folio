@@ -160,12 +160,21 @@ export async function isTokenAssociated(
     const info = await new AccountInfoQuery()
       .setAccountId(AccountId.fromString(accountId))
       .execute(client);
-    const rel = info.tokenRelationships as Map<TokenId, { tokenId: TokenId }> | undefined;
-    if (rel && typeof rel.get === 'function') {
+    // SDK TokenRelationshipMap is not a standard Map; probe via any-compatible access
+    const rel = info.tokenRelationships as unknown as
+      | { get?: (k: TokenId) => unknown; _map?: Map<TokenId, unknown> }
+      | Map<TokenId, unknown>
+      | undefined;
+    if (rel) {
       const tid = TokenId.fromString(tokenId);
-      if (rel.get(tid)) return true;
-      for (const [k] of rel) {
-        if (k.toString() === tokenId) return true;
+      if (typeof (rel as Map<TokenId, unknown>).get === 'function') {
+        const hit = (rel as Map<TokenId, unknown>).get(tid);
+        if (hit) return true;
+        for (const [k] of rel as Map<TokenId, unknown>) {
+          if (String(k) === tokenId) return true;
+        }
+      } else if (typeof (rel as { get?: (k: TokenId) => unknown }).get === 'function') {
+        if ((rel as { get: (k: TokenId) => unknown }).get(tid)) return true;
       }
     }
   } catch {
