@@ -14,6 +14,7 @@ import {
   Transaction,
   AccountBalanceQuery,
   AccountInfoQuery,
+  TokenInfoQuery,
   AccountAllowanceApproveTransaction,
   ContractExecuteTransaction,
   ContractFunctionParameters,
@@ -72,7 +73,7 @@ export function getClient(): Client {
   clientInstance =
     network === 'mainnet' ? Client.forMainnet() : Client.forTestnet();
   clientInstance.setOperator(AccountId.fromString(operatorId), operatorKey);
-  clientInstance.setDefaultMaxTransactionFee(new Hbar(50));
+  clientInstance.setDefaultMaxTransactionFee(Hbar.from(100));
 
   return clientInstance;
 }
@@ -116,7 +117,8 @@ export async function createFungibleToken(
 
 /**
  * Create Folio equity HTS token (shared by all users for this symbol).
- * KYC + freeze keys match setup.ts stock tokens.
+ * No KYC/freeze keys — users with maxAutomaticTokenAssociations can receive
+ * on buy without an explicit associate + KYC (avoids INVALID_SIGNATURE / KYC fails).
  */
 export async function createEquityStockToken(
   name: string,
@@ -137,10 +139,7 @@ export async function createEquityStockToken(
     .setSupplyType(TokenSupplyType.Infinite)
     .setSupplyKey(operatorKey.publicKey)
     .setAdminKey(operatorKey.publicKey)
-    .setKycKey(operatorKey.publicKey)
-    .setFreezeKey(operatorKey.publicKey)
-    .setFreezeDefault(false)
-    // Mainnet multi-key HTS create is expensive (~10–20 ℏ); max must cover fee
+    // Intentionally NO kycKey / freezeKey
     .setMaxTransactionFee(new Hbar(25))
     .freezeWith(client);
 
@@ -148,6 +147,37 @@ export async function createEquityStockToken(
   const response = await signed.execute(client);
   const receipt = await response.getReceipt(client);
   return receipt.tokenId!.toString();
+}
+
+/**
+ * Remove KYC (and optionally freeze) keys from an existing equity token so
+ * auto-association + transfer works without grantKyc.
+ * Requires admin key = operator.
+ */
+export async function clearTokenKycAndFreeze(tokenId: string): Promise<void> {
+  const client = getClient();
+  const operatorKey = getOperatorKey();
+  const { TokenUpdateTransaction, KeyList } = await import('@hashgraph/sdk');
+
+  const info = await new TokenInfoQuery()
+    .setTokenId(TokenId.fromString(tokenId))
+    .execute(client);
+
+  if (!info.kycKey && !info.freezeKey) return;
+
+  const empty = new KeyList();
+  let tx = new TokenUpdateTransaction()
+    .setTokenId(TokenId.fromString(tokenId))
+    .setMaxTransactionFee(Hbar.from(200));
+
+  if (info.kycKey) tx = tx.setKycKey(empty);
+  if (info.freezeKey) tx = tx.setFreezeKey(empty);
+
+  const frozen = await tx.freezeWith(client);
+  await frozen.sign(operatorKey);
+  const resp = await frozen.execute(client);
+  await resp.getReceipt(client);
+  console.log(`[hedera] cleared KYC/freeze on ${tokenId}`);
 }
 
 /** True if account is associated with this HTS token (mirror-first, reliable). */
@@ -672,6 +702,61 @@ export async function prepareTokenAssociation(
     .freezeWith(client);
 
   return tx.toBytes();
+}
+
+/**
+ * Associate tokens + grant KYC + unfreeze using the user's server-held private key.
+ * Used at trade fill so we don't depend on client-signed associate (INVALID_SIGNATURE
+ * was failing KYC and then stock transfer).
+ */
+export async function ensureUserTokenReady(
+  accountId: string,
+  tokenId: string,
+  userPrivateKeyDer: string
+): Promise<void> {
+  const client = getClient();
+  const operatorKey = getOperatorKey();
+  const operatorId = getOperatorId();
+  const userKey = PrivateKey.fromStringDer(userPrivateKeyDer);
+
+  const already = await isTokenAssociated(accountId, tokenId);
+  if (!already) {
+    const tx = await new TokenAssociateTransaction()
+      .setAccountId(AccountId.fromString(accountId))
+      .setTokenIds([TokenId.fromString(tokenId)])
+      .setTransactionId(TransactionId.generate(operatorId))
+      .setTransactionValidDuration(180)
+      .freezeWith(client);
+    await tx.sign(userKey);
+    await tx.sign(operatorKey);
+    const resp = await tx.execute(client);
+    try {
+      await resp.getReceipt(client);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('TOKEN_ALREADY_ASSOCIATED')) throw e;
+    }
+  }
+
+  try {
+    await grantKyc(tokenId, accountId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/already|ACCOUNT_KYC|SUCCESS/i.test(msg)) {
+      // grantKyc may throw if already granted — ignore benign cases
+      if (!msg.includes('ACCOUNT_KYC_ALREADY_GRANTED')) {
+        console.warn('[ensureUserTokenReady] grantKyc:', msg);
+      }
+    }
+  }
+  try {
+    await unfreezeAccount(tokenId, accountId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/already|not frozen|TOKEN_HAS_NO_FREEZE/i.test(msg)) {
+      console.warn('[ensureUserTokenReady] unfreeze:', msg);
+    }
+  }
 }
 
 // Prepare an unsigned collateral lock transaction for client-side signing (gasless)

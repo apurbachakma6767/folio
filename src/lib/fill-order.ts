@@ -3,8 +3,25 @@
 import { getOrder, markOrderFilled, markOrderStatus } from './broker-orders';
 import { ensureEquityToken, getTokenIdForSymbol } from './token-registry';
 import { getUsdcTokenId } from './network';
+import { getUser } from './user-registry';
+import { decryptServerWalletKey } from './server-wallet-crypto';
 
 const HTS_DECIMALS = 6;
+
+/** Decrypt user's server wallet key for server-side associate/KYC. */
+async function getUserPrivateKeyDer(userEmail: string): Promise<string | null> {
+  try {
+    const user = await getUser(userEmail);
+    if (!user?.serverWalletKey) return null;
+    return decryptServerWalletKey(user.serverWalletKey);
+  } catch (e) {
+    console.warn(
+      '[fill] cannot decrypt server wallet key:',
+      e instanceof Error ? e.message : e
+    );
+    return null;
+  }
+}
 
 export function encodeSettlementNote(signedTxBase64: string): string {
   return `SETTLEMENT_TX:${signedTxBase64}`;
@@ -60,14 +77,13 @@ export async function fillOrderOnChain(orderId: number): Promise<{ fillTxId: str
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           // If already executed / duplicate, continue to mint stock
-          if (!/DUPLICATE|INVALID_SIGNATURE|already|BUSY/i.test(msg)) {
-            // Still try mint if USDC may have arrived from a prior attempt
+          if (!/DUPLICATE|already|BUSY/i.test(msg)) {
             console.warn('[fill] buy settlement submit:', msg);
-            if (!/SUCCESS/i.test(msg)) {
-              // Check treasury received nothing — rethrow hard failures
-              if (/INSUFFICIENT|INVALID_ACCOUNT|TOKEN_NOT_ASSOCIATED/i.test(msg)) {
-                throw e;
-              }
+            // INVALID_SIGNATURE on settlement is fatal (USDC not collected)
+            if (/INVALID_SIGNATURE|INSUFFICIENT|TOKEN_NOT_ASSOCIATED/i.test(msg)) {
+              throw new Error(
+                `USDC payment failed: ${msg}. Re-open Trade and place the order again.`
+              );
             }
           }
         }
@@ -75,15 +91,41 @@ export async function fillOrderOnChain(orderId: number): Promise<{ fillTxId: str
         throw new Error('Missing signed USDC payment for buy order');
       }
 
-      // 2) Mint → user immediately (operator is supply/treasury key only; no inventory)
+      // 2) Prepare token for user receive
       const equity = await ensureEquityToken(order.symbol);
       const stockTokenId = equity.tokenId;
+
+      // Prefer clearing KYC friction; then associate+KYC with server key if still needed
       try {
-        await grantKyc(stockTokenId, order.userAccountId);
-      } catch { /* ok */ }
-      try {
-        await unfreezeAccount(stockTokenId, order.userAccountId);
-      } catch { /* ok */ }
+        const { clearTokenKycAndFreeze, ensureUserTokenReady } = await import('./hedera');
+        await clearTokenKycAndFreeze(stockTokenId);
+        const userKeyDer = await getUserPrivateKeyDer(order.userEmail);
+        if (userKeyDer) {
+          // Only works if server key matches account — ensureUserTokenReady validates path
+          try {
+            await ensureUserTokenReady(order.userAccountId, stockTokenId, userKeyDer);
+          } catch (assocErr) {
+            console.warn(
+              '[fill] ensureUserTokenReady (will try transfer with auto-assoc):',
+              assocErr instanceof Error ? assocErr.message : assocErr
+            );
+          }
+        } else {
+          try {
+            await grantKyc(stockTokenId, order.userAccountId);
+          } catch { /* */ }
+          try {
+            await unfreezeAccount(stockTokenId, order.userAccountId);
+          } catch { /* */ }
+        }
+      } catch (prepErr) {
+        console.warn(
+          '[fill] token prep:',
+          prepErr instanceof Error ? prepErr.message : prepErr
+        );
+      }
+
+      // 3) Mint → user (auto-assoc accounts receive without explicit associate once KYC gone)
       await mintFungibleToken(stockTokenId, amountHts);
       fillTxId = await transferToken(
         stockTokenId,

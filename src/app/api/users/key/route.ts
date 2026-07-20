@@ -102,9 +102,34 @@ export async function POST(req: NextRequest) {
     }
 
     // Server-side private key backup (privateKeyDer from client once over HTTPS)
+    // Only store if key matches the account's public key — never overwrite with a wrong key
     if (typeof body.privateKeyDer === 'string' && body.privateKeyDer.length > 20) {
-      const blob = encryptServerWalletKey(body.privateKeyDer);
-      await storeServerWalletKey(email, blob);
+      try {
+        const { PrivateKey } = await import('@hashgraph/sdk');
+        const pk = PrivateKey.fromStringDer(body.privateKeyDer);
+        const pub = pk.publicKey.toStringDer();
+        if (user.publicKey && pub !== user.publicKey) {
+          console.warn(
+            `[users/key] refuse server_wallet_key for ${email}: key does not match account public key`
+          );
+        } else {
+          const blob = encryptServerWalletKey(body.privateKeyDer);
+          await storeServerWalletKey(email, blob);
+          // Backfill public_key if missing
+          if (!user.publicKey) {
+            const { supabase } = await import('@/lib/supabase');
+            await supabase
+              .from('users')
+              .update({ public_key: pub })
+              .eq('email', email.toLowerCase());
+          }
+        }
+      } catch (e) {
+        console.warn(
+          '[users/key] server key store skipped:',
+          e instanceof Error ? e.message : e
+        );
+      }
     }
 
     return NextResponse.json({ success: true });
