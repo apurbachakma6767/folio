@@ -4,7 +4,13 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useDynamicContext, useUserWallets } from '@dynamic-labs/sdk-react-core';
 import { authFetch } from '@/lib/use-auth-fetch';
 import { useHederaKey } from './use-hedera-key';
-import { hasKeypair, getStoredPublicKey, exportKey } from './hedera-keystore';
+import {
+  hasKeypair,
+  getStoredPublicKey,
+  exportKey,
+  clearKeypair,
+  localKeyMatchesAccount,
+} from './hedera-keystore';
 
 export interface FolioUser {
   email: string;
@@ -285,44 +291,69 @@ export function useUserRegistration() {
         const me = (await meRes.json().catch(() => ({}))) as MeResponse;
         if (cancelled) return;
 
-        // 1) Local key + DB user
-        if (hasKeypair() && getStoredPublicKey() && me.exists && me.user) {
-          ensureServerKeyBackup(user!.email!).catch(() => {});
-          // Prefer session passphrase to auto-complete missing backups
-          if (!isBackupComplete(me)) {
-            try {
-              const cached = sessionStorage.getItem('folio:passphrase-cache');
-              if (cached && cached.length >= 6) {
-                await saveFullKeyBackup(user!.email!, cached);
-                const me2 = (await (await authFetch('/api/users/me')).json()) as MeResponse;
-                if (isBackupComplete(me2)) {
-                  setFolioUser(me2.user || me.user);
-                  setStatus('done');
-                  bootedEmail.current = user!.email!;
-                  setNeedsBackupOnly(false);
-                  return;
+        const accountPub = me.user?.publicKey;
+
+        // 1) Local key only if it actually owns this Hedera account.
+        //    Orphan / wrong keys from old generateKey runs used to stick on reload
+        //    and caused INVALID_SIGNATURE while DB/server had the real key.
+        if (hasKeypair() && me.exists && me.user && accountPub) {
+          const matches = await localKeyMatchesAccount(accountPub);
+          if (matches) {
+            ensureServerKeyBackup(user!.email!).catch(() => {});
+            if (!isBackupComplete(me)) {
+              try {
+                const cached = sessionStorage.getItem('folio:passphrase-cache');
+                if (cached && cached.length >= 6) {
+                  await saveFullKeyBackup(user!.email!, cached);
+                  const me2 = (await (await authFetch('/api/users/me')).json()) as MeResponse;
+                  if (isBackupComplete(me2)) {
+                    setFolioUser(me2.user || me.user);
+                    setStatus('done');
+                    bootedEmail.current = user!.email!;
+                    setNeedsBackupOnly(false);
+                    return;
+                  }
                 }
+              } catch (e) {
+                console.warn('[registration] auto backup failed', e);
               }
-            } catch (e) {
-              console.warn('[registration] auto backup failed', e);
+              if (requestBackupIfIncomplete(me, me.user)) return;
             }
-            if (requestBackupIfIncomplete(me, me.user)) return;
+            setFolioUser(me.user);
+            setStatus('done');
+            bootedEmail.current = user!.email!;
+            return;
           }
-          setFolioUser(me.user);
-          setStatus('done');
-          bootedEmail.current = user!.email!;
-          return;
+          // Wrong key in localStorage — discard so restore can put the correct one
+          console.warn(
+            '[registration] local key does not match account public_key — clearing and restoring'
+          );
+          clearKeypair();
+        } else if (hasKeypair() && me.exists && me.user && !accountPub) {
+          // Account has no public_key in DB yet — keep local, backup will set it
+          if (getStoredPublicKey()) {
+            ensureServerKeyBackup(user!.email!).catch(() => {});
+            setFolioUser(me.user);
+            setStatus('done');
+            bootedEmail.current = user!.email!;
+            return;
+          }
         }
 
-        // 2) Silent restore from server_wallet_key
+        // 2) Silent restore from server_wallet_key (correct account key)
         if (me.exists && me.hasServerWalletKey) {
           try {
             setStatus('recovering-key');
             await restoreFromServer(user!.email!);
             if (cancelled) return;
+            // Double-check restored key owns the account
+            if (accountPub && !(await localKeyMatchesAccount(accountPub))) {
+              clearKeypair();
+              throw new Error('Restored key still does not match account');
+            }
             const pub = getStoredPublicKey();
             if (pub && me.user) {
-              // Must collect passphrase if backups incomplete (logout clears session cache)
+              ensureServerKeyBackup(user!.email!).catch(() => {});
               if (!isBackupComplete(me)) {
                 try {
                   const cached = sessionStorage.getItem('folio:passphrase-cache');

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAuth, unauthorized } from '@/lib/auth';
-import { getOrder, markOrderFilled, markOrderStatus } from '@/lib/broker-orders';
-import { getTokenIdForSymbol } from '@/lib/token-registry';
-import { getUsdcTokenId } from '@/lib/network';
+import { getOrder, markOrderStatus } from '@/lib/broker-orders';
+import { fillOrderNow } from '@/lib/fill-order';
 
 function isAdmin(email: string): boolean {
   const list = (process.env.ADMIN_EMAILS || '')
@@ -18,9 +17,13 @@ function isAdmin(email: string): boolean {
 
 /**
  * POST /api/admin/orders/fill
- * Body: { orderId, skipChain?: boolean }
- * Buy fill → mint HTS stock to user
- * Sell fill → transfer USDC notional to user (stock already expected at operator or burned ops-side)
+ * Body: { orderId }
+ *
+ * Uses the same strict settlement as auto-fill:
+ *   BUY  → USDC user→treasury first, then mint/transfer stock
+ *   SELL → stock user→treasury first, then USDC treasury→user
+ *
+ * Does NOT mint stock or pay USDC without the signed settlement note.
  */
 export async function POST(req: NextRequest) {
   const auth = await verifyAuth(req);
@@ -31,93 +34,58 @@ export async function POST(req: NextRequest) {
 
   let orderIdForFail: number | undefined;
   try {
-    const { orderId, skipChain = false } = await req.json();
-    orderIdForFail = orderId != null ? Number(orderId) : undefined;
-    if (!orderId) {
+    const body = await req.json();
+    const orderId = body.orderId != null ? Number(body.orderId) : undefined;
+    orderIdForFail = orderId;
+    if (!orderId || !Number.isFinite(orderId)) {
       return NextResponse.json({ error: 'orderId required' }, { status: 400 });
     }
 
-    const order = await getOrder(Number(orderId));
+    // skipChain is intentionally ignored — off-chain free fills are not allowed
+    if (body.skipChain) {
+      return NextResponse.json(
+        {
+          error:
+            'skipChain is disabled. Settlement must take USDC (buy) or stock (sell) on-chain first.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const order = await getOrder(orderId);
     if (!order) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
     if (order.status !== 'pending' && order.status !== 'processing') {
-      return NextResponse.json({ error: `Order is already ${order.status}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Order is already ${order.status}` },
+        { status: 400 }
+      );
     }
 
-    const hederaConfigured = !!(
-      process.env.HEDERA_OPERATOR_ID && process.env.HEDERA_OPERATOR_KEY
-    );
-    let fillTxId = `desk-fill-${Date.now()}`;
-
-    if (hederaConfigured && !skipChain) {
-      const {
-        mintFungibleToken,
-        burnFungibleToken,
-        transferToken,
-        getOperatorId,
-        grantKyc,
-        unfreezeAccount,
-        getTokenBalances,
-      } = await import('@/lib/hedera');
-      const operatorId = getOperatorId().toString();
-      const HTS_DECIMALS = 6;
-      const amountHts = Math.floor(order.shares * 10 ** HTS_DECIMALS);
-
-      if (order.side === 'buy') {
-        const stockTokenId = getTokenIdForSymbol(order.symbol);
-        if (!stockTokenId) {
-          return NextResponse.json({ error: `No HTS token for ${order.symbol}` }, { status: 503 });
-        }
-        try {
-          await grantKyc(stockTokenId, order.userAccountId);
-        } catch { /* ok */ }
-        try {
-          await unfreezeAccount(stockTokenId, order.userAccountId);
-        } catch { /* ok */ }
-        // Mint → user immediately; operator does not retain stock inventory
-        await mintFungibleToken(stockTokenId, amountHts);
-        fillTxId = await transferToken(
-          stockTokenId,
-          operatorId,
-          order.userAccountId,
-          amountHts
-        );
-      } else {
-        // Sell: burn any treasury stock, pay USDC (operator is USDC liquidity only)
-        const stockTokenId = getTokenIdForSymbol(order.symbol);
-        if (stockTokenId) {
-          try {
-            const bal = (await getTokenBalances(operatorId)).get(stockTokenId) ?? 0;
-            const burnAmt = Math.min(amountHts, bal);
-            if (burnAmt > 0) await burnFungibleToken(stockTokenId, burnAmt);
-          } catch (e) {
-            console.warn('[admin/fill] burn stock:', e instanceof Error ? e.message : e);
-          }
-        }
-        const usdcId = getUsdcTokenId();
-        if (!usdcId) {
-          return NextResponse.json({ error: 'USDC not configured' }, { status: 503 });
-        }
-        const proceeds =
-          order.notionalUsd ??
-          order.shares * (order.limitPrice ?? 0);
-        if (!proceeds || proceeds <= 0) {
-          return NextResponse.json({ error: 'Cannot compute sell proceeds' }, { status: 400 });
-        }
-        const usdcHts = Math.round(proceeds * 1e6);
-        fillTxId = await transferToken(usdcId, operatorId, order.userAccountId, usdcHts);
-      }
-    }
-
-    const filled = await markOrderFilled(order.id, fillTxId, `Filled by ${auth.email}`);
-    return NextResponse.json({ success: true, order: filled, fillTxId });
+    const { fillTxId } = await fillOrderNow(orderId);
+    const filled = await getOrder(orderId);
+    return NextResponse.json({
+      success: true,
+      order: filled,
+      fillTxId,
+      message:
+        order.side === 'buy'
+          ? 'Filled: USDC taken first, then stock delivered'
+          : 'Filled: stock taken first, then USDC paid',
+    });
   } catch (error) {
     console.error('[admin/orders/fill]', error);
     if (orderIdForFail) {
       try {
-        await markOrderStatus(orderIdForFail, 'failed', error instanceof Error ? error.message : String(error));
-      } catch { /* ignore */ }
+        await markOrderStatus(
+          orderIdForFail,
+          'failed',
+          error instanceof Error ? error.message : String(error)
+        );
+      } catch {
+        /* ignore */
+      }
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Fill failed' },

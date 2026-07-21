@@ -132,6 +132,33 @@ export async function validateImportedKey(): Promise<string> {
   return publicKeyDer;
 }
 
+/**
+ * True when local private key's public key matches the account key from the DB.
+ * Accepts either DER or raw hex for expectedPublicKey.
+ */
+export async function localKeyMatchesAccount(
+  expectedPublicKey: string | null | undefined
+): Promise<boolean> {
+  if (!expectedPublicKey || typeof window === 'undefined') return false;
+  const privateKeyDer = localStorage.getItem(STORAGE_KEY_PRIVATE);
+  if (!privateKeyDer) return false;
+  try {
+    const { PrivateKey } = await import('@hashgraph/sdk');
+    const pk = PrivateKey.fromStringDer(privateKeyDer);
+    const der = pk.publicKey.toStringDer();
+    const raw = pk.publicKey.toStringRaw();
+    // Also sync stored public key so UI is consistent
+    localStorage.setItem(STORAGE_KEY_PUBLIC, der);
+    return (
+      expectedPublicKey === der ||
+      expectedPublicKey === raw ||
+      expectedPublicKey.toLowerCase() === raw.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function clearKeypair(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(STORAGE_KEY_PRIVATE);

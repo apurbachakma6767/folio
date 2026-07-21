@@ -13,6 +13,7 @@ import {
   clearKeypair,
   encryptPrivateKey,
   decryptPrivateKey,
+  localKeyMatchesAccount,
 } from './hedera-keystore';
 
 export function useHederaKey() {
@@ -83,6 +84,15 @@ export function useHederaKey() {
 
     importKey(privateKeyDer);
     const pub = await validateImportedKey();
+    // Refuse to keep a restored key that does not own the account
+    if (data.publicKey && pub !== data.publicKey) {
+      clearKeypair();
+      setHasKey(false);
+      setPublicKeyDer(null);
+      throw new Error(
+        'Backup key does not match this Hedera account. Contact support or re-import the correct key.'
+      );
+    }
     setHasKey(true);
     setPublicKeyDer(pub);
     return pub;
@@ -97,14 +107,17 @@ export function useHederaKey() {
     if (!data.privateKeyDer) throw new Error('No server wallet key');
     importKey(data.privateKeyDer);
     const pub = await validateImportedKey();
+    if (data.publicKey && pub !== data.publicKey) {
+      // Corrupted server backup — do not leave a wrong key in the browser
+      clearKeypair();
+      setHasKey(false);
+      setPublicKeyDer(null);
+      throw new Error(
+        'Server wallet key does not match account public key — refusing restore'
+      );
+    }
     setHasKey(true);
     setPublicKeyDer(pub);
-    // Refresh server backup if column was empty side-paths
-    authFetch('/api/users/key', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, privateKeyDer: data.privateKeyDer }),
-    }).catch(() => {});
     return pub;
   }, []);
 
