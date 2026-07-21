@@ -478,15 +478,21 @@ export async function fillOrderOnChain(orderId: number): Promise<{ fillTxId: str
   return { fillTxId };
 }
 
+/**
+ * Kick off fill without blocking the HTTP response.
+ *
+ * IMPORTANT: Do NOT use setTimeout delays here. On Vercel/serverless the
+ * isolate freezes after the response is sent, so delayed fills never run and
+ * orders sit forever in `processing` until the signed settlement expires
+ * (TRANSACTION_EXPIRED). Start fill immediately in the same event loop turn.
+ */
 export function scheduleAutoConfirm(orderId: number): void {
-  setTimeout(() => {
-    markOrderStatus(orderId, 'processing', undefined).catch((e) =>
-      console.error('[auto-confirm] processing', orderId, e)
-    );
-  }, 1_000);
-
-  setTimeout(() => {
-    fillOrderOnChain(orderId).catch(async (e) => {
+  // Fire-and-forget; caller has already persisted the order + settlement bytes
+  void (async () => {
+    try {
+      await markOrderStatus(orderId, 'processing', undefined).catch(() => undefined);
+      await fillOrderOnChain(orderId);
+    } catch (e) {
       console.error('[auto-confirm] fill', orderId, e);
       try {
         await markOrderStatus(
@@ -497,8 +503,8 @@ export function scheduleAutoConfirm(orderId: number): void {
       } catch {
         /* */
       }
-    });
-  }, 4_000);
+    }
+  })();
 }
 
 export async function fillOrderNow(orderId: number): Promise<{ fillTxId: string }> {

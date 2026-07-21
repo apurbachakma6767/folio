@@ -6,7 +6,7 @@ import { getStockPrice } from '@/lib/price';
 import { TRADE_STOCKS } from '@/lib/types';
 import { ensureEquityToken, getTokenIdForSymbol } from '@/lib/token-registry';
 import { getUsdcTokenId } from '@/lib/network';
-import { encodeSettlementNote, scheduleAutoConfirm } from '@/lib/fill-order';
+import { encodeSettlementNote } from '@/lib/fill-order';
 
 const ALLOWED = new Set(TRADE_STOCKS.map((s) => s.symbol));
 const HTS_DECIMALS = 6;
@@ -143,17 +143,42 @@ export async function POST(req: NextRequest) {
         : body.notes,
     });
 
-    // Auto-confirm pipeline: pending → processing (~2s) → filled (~10s)
-    // Buy: USDC user→treasury, mint stock→user
-    // Sell: stock user→treasury, USDC treasury→user
-    scheduleAutoConfirm(order.id);
+    // Fill immediately in-process (no setTimeout — serverless freezes after response).
+    // Buy: USDC user→treasury first, then mint stock→user
+    // Sell: stock user→treasury first, then USDC treasury→user
+    // Prefer await so settlement runs while the request is still alive on Vercel.
+    let fillTxId: string | undefined;
+    let fillError: string | undefined;
+    try {
+      const { fillOrderNow } = await import('@/lib/fill-order');
+      const result = await fillOrderNow(order.id);
+      fillTxId = result.fillTxId;
+    } catch (e) {
+      fillError = e instanceof Error ? e.message : String(e);
+      console.error('[trade/orders] inline fill failed', order.id, fillError);
+      // scheduleAutoConfirm is a no-delay fallback; order already failed in fill path
+      // if mark failed inside fillOrderNow — re-mark for safety
+      try {
+        const { markOrderStatus } = await import('@/lib/broker-orders');
+        await markOrderStatus(order.id, 'failed', fillError);
+      } catch {
+        /* */
+      }
+    }
+
+    // Refresh order status for response
+    const { getOrder } = await import('@/lib/broker-orders');
+    const finalOrder = (await getOrder(order.id)) || order;
 
     return NextResponse.json({
-      order,
-      message:
-        side === 'buy'
-          ? 'Buy submitted. USDC to treasury; stock tokens arrive when confirmed…'
-          : 'Sell submitted. Stock to treasury; USDC arrives when confirmed…',
+      order: finalOrder,
+      fillTxId,
+      fillError,
+      message: fillError
+        ? `Order could not be filled: ${fillError}`
+        : side === 'buy'
+          ? 'Buy filled. USDC taken; stock tokens delivered.'
+          : 'Sell filled. Stock taken; USDC delivered.',
     });
   } catch (error) {
     console.error('[trade/orders POST]', error);
